@@ -77,6 +77,53 @@ function getWakeStats(){
     // also stop if we hit a gap day (missing day in store)
     // (We keep it simple: streak is “consecutive logged days available in state”.)
   }
+function pickWakeMessage(){
+  // If anything goes weird, never brick the app
+  try {
+    const { streakDays, consistencyScore } = (typeof getWakeStats === "function")
+      ? getWakeStats()
+      : { streakDays: 0, consistencyScore: 0 };
+
+    const supportiveGate = (streakDays >= 7) || (streakDays >= 4 && consistencyScore >= 0.6);
+    const mixedGate = (streakDays >= 3);
+
+    const hype = [
+      "Feet on floor. Stand up now. No negotiations.",
+      "Up. Water. Move. We’re not thinking—just executing.",
+      "Get vertical. Your day starts when you move.",
+      "Stand up. One small win in the next 10 minutes. Go."
+    ];
+
+    const mixed = [
+      "Alright—let’s move. Small wins first, momentum second.",
+      "Up we go. One 10-minute action to start the chain.",
+      "Stand up, breathe, move. Then we decide the first win."
+    ];
+
+    const dad = [
+      "Up we go—quiet, steady, on purpose. One small win first.",
+      "Good morning. Let’s secure the day with three simple outcomes.",
+      "We’re building consistency. One step, then the next."
+    ];
+
+    const pool = supportiveGate ? dad : (mixedGate ? mixed : hype);
+
+    // rotate daily by dayKey so it's different each day but stable for that day
+    const seed = (typeof dayKey === "function" ? dayKey() : "0").split("-").join("");
+    const idx = Number(seed) % pool.length;
+
+    const message = pool[idx];
+    const subtext = supportiveGate
+      ? `Streak: ${streakDays} day(s). Consistency: ${(consistencyScore*100)|0}%`
+      : mixedGate
+        ? `Streak: ${streakDays} day(s). Keep it small and clean.`
+        : `We start before we feel ready.`;
+
+    return { message, subtext };
+  } catch (e) {
+    return { message: "Stand up. Move your body.", subtext: "Small wins first." };
+  }
+}
 
   // consistency: lower spread => higher score
   // We'll use a simple range (max-min) in minutes across last 7 wake logs.
@@ -884,20 +931,15 @@ async function importData(){
 // ----- Boot -----
 
 (async function init(){
+  // SAFETY: never allow a stale lock to brick the app
+  document.body.classList.remove("locked");
+
   ensureDay(dayKey());
   try { await registerServiceWorker(); } catch {}
   render();
-
-  // Listen for notification actions (snooze)
-  if(navigator.serviceWorker){
-    navigator.serviceWorker.addEventListener("message", async (event) => {
-      const msg = event.data || {};
-      if(msg.type === "NOTIF_ACTION" && msg.action === "snooze"){
-        await handleSnoozeFromNotif(msg.data || {});
-      }
-    });
-  }
+  ...
 })();
+
 
 async function handleSnoozeFromNotif(data){
   const d = ensureDay(dayKey());
