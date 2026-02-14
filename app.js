@@ -840,8 +840,9 @@ async function handleAction(act){
 
   toast("Logged.");
   return;
-}
+} // end event:
 
+} // end handleAction
 
 // Modal-less prompt for MVP (simple)
 function promptBlock3Delay(){
