@@ -11,6 +11,13 @@ const CHECKIN_OFFSET_MIN = 45;        // block 1/2 check-in offset
 const BLOCK3_CHECKIN_OFFSET_MIN = 30; // block3 check-in after start
 
 const $ = (id) => document.getElementById(id);
+function safeUUID(){
+  if (crypto && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `dev-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 // ----- Wake Lock Modal + Motivation Messages -----
 
 let wakeModalEl = null;
@@ -211,7 +218,7 @@ function loadState(){
     try { return JSON.parse(raw); } catch {}
   }
   return {
-    deviceId: crypto.randomUUID(),
+deviceId: safeUUID(),
     days: {},
     settings: {
       pushEnabled: false
