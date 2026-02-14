@@ -11,6 +11,131 @@ const CHECKIN_OFFSET_MIN = 45;        // block 1/2 check-in offset
 const BLOCK3_CHECKIN_OFFSET_MIN = 30; // block3 check-in after start
 
 const $ = (id) => document.getElementById(id);
+// ----- Wake Lock Modal + Motivation Messages -----
+
+let wakeModalEl = null;
+
+function ensureWakeModal(){
+  if (wakeModalEl) return wakeModalEl;
+
+  const wrap = document.createElement("div");
+  wrap.className = "wake-modal";
+  wrap.id = "wakeModal";
+  wrap.innerHTML = `
+    <div class="wake-card">
+      <div class="wake-title">Wake confirmed.</div>
+      <div class="wake-msg" id="wakeMsg">Stand up. Move your body.</div>
+      <div class="wake-sub" id="wakeSub">Small wins first. No debating.</div>
+      <button class="wake-btn" id="wakeBtn">Hell yeah, brother</button>
+    </div>
+  `;
+  document.body.appendChild(wrap);
+  wakeModalEl = wrap;
+  return wakeModalEl;
+}
+
+function openWakeModal({ message, subtext, onDismiss }){
+  ensureWakeModal();
+  document.body.classList.add("locked");
+
+  $("wakeMsg").textContent = message;
+  $("wakeSub").textContent = subtext;
+
+  wakeModalEl.classList.add("show");
+
+  const btn = $("wakeBtn");
+  btn.onclick = () => {
+    wakeModalEl.classList.remove("show");
+    document.body.classList.remove("locked");
+    if (typeof onDismiss === "function") onDismiss();
+  };
+}
+
+function getWakeStats(){
+  // Returns: { streakDays, consistencyScore } based on last 7 days with imUp timestamps
+  const keys = Object.keys(state.days).sort(); // ascending
+  const last7 = keys.slice(-7);
+
+  const wakeTimes = [];
+  for (const k of last7) {
+    const ts = state.days[k]?.events?.imUp;
+    if (ts) {
+      const d = new Date(ts);
+      wakeTimes.push(d.getHours() * 60 + d.getMinutes()); // minutes since midnight
+    }
+  }
+
+  // streak: consecutive days ending today where imUp exists
+  let streak = 0;
+  const today = dayKey();
+  const sorted = Object.keys(state.days).sort().reverse(); // newest -> oldest
+  for (const k of sorted) {
+    if (!state.days[k]?.events?.imUp) break;
+    streak += 1;
+    // stop once we pass 14 for sanity
+    if (streak >= 14) break;
+    // also stop if we hit a gap day (missing day in store)
+    // (We keep it simple: streak is “consecutive logged days available in state”.)
+  }
+
+  // consistency: lower spread => higher score
+  // We'll use a simple range (max-min) in minutes across last 7 wake logs.
+  let consistencyScore = 0; // 0..1
+  if (wakeTimes.length >= 3) {
+    const min = Math.min(...wakeTimes);
+    const max = Math.max(...wakeTimes);
+    const range = max - min; // minutes
+    // 0 mins range => 1.0; 90+ mins range => near 0
+    consistencyScore = Math.max(0, Math.min(1, 1 - (range / 90)));
+  }
+
+  return { streakDays: streak, consistencyScore };
+}
+
+function pickWakeMessage(){
+  const { streakDays, consistencyScore } = getWakeStats();
+
+  // Tiering:
+  // - Early: hype/aggressive
+  // - Mid: mixed
+  // - Solid + consistent: supportive
+  const supportiveGate = (streakDays >= 7) || (streakDays >= 4 && consistencyScore >= 0.6);
+  const mixedGate = (streakDays >= 3);
+
+  const hype = [
+    "Feet on floor. Stand up now. No negotiations.",
+    "Up. Water. Move. We’re not thinking—just executing.",
+    "Get vertical. Your day starts when you move.",
+    "Stand up. One small win in the next 10 minutes. Go."
+  ];
+
+  const mixed = [
+    "Alright—let’s move. Small wins first, momentum second.",
+    "Up we go. One 10-minute action to start the chain.",
+    "Stand up, breathe, move. Then we decide the first win."
+  ];
+
+  const dad = [
+    "Up we go—quiet, steady, on purpose. One small win first.",
+    "Good morning. Let’s secure the day with three simple outcomes.",
+    "We’re building consistency. One step, then the next."
+  ];
+
+  const pool = supportiveGate ? dad : (mixedGate ? mixed : hype);
+
+  // rotate daily by dayKey so you get variety but stable for that day
+  const seed = dayKey().split("-").join("");
+  const idx = Number(seed) % pool.length;
+
+  const message = pool[idx];
+  const subtext = supportiveGate
+    ? `Streak: ${streakDays} day(s). Consistency: ${(consistencyScore*100)|0}%`
+    : mixedGate
+      ? `Streak: ${streakDays} day(s). Keep it small and clean.`
+      : `We start before we feel ready.`;
+
+  return { message, subtext };
+}
 
 function toast(msg){
   const t = $("toast");
@@ -564,90 +689,112 @@ async function handleAction(act){
     return;
   }
 
-  if(act.startsWith("event:")){
-    const ev = act.split(":")[1];
-    const ts = Date.now();
-    d.events[ev] = ts;
+ if(act.startsWith("event:")){
+  const ev = act.split(":")[1];
 
-    if(ev === "babyUp"){
-      // schedule block1 check-in only
-      const sendAt = ts + CHECKIN_OFFSET_MIN*60*1000;
-      d.scheduled.block1CheckinAt = sendAt;
-
-      await schedulePush(
-        `b1-checkin-${dayKey()}`,
-        "Block 1 check-in",
-        "How’s it going? What’s the next tiny move?",
-        sendAt,
-        { kind:"b1_checkin" }
-      );
-      toast("Baby up logged.");
-      return;
-    }
-
-    if(ev === "napStart"){
-      // schedule block2 check-in only
-      const sendAt = ts + CHECKIN_OFFSET_MIN*60*1000;
-      d.scheduled.block2CheckinAt = sendAt;
-
-      await schedulePush(
-        `b2-checkin-${dayKey()}`,
-        "Block 2 check-in",
-        "How’s it going? What’s the next tiny move?",
-        sendAt,
-        { kind:"b2_checkin" }
-      );
-      toast("Nap start logged.");
-      return;
-    }
-
-    if(ev === "napEnd"){
-      // prompt 30/40/45
-      const delay = await promptBlock3Delay(); // minutes
-      if(delay == null){
-        toast("Canceled.");
-        return;
-      }
-
-      const startAt = ts + delay*60*1000;
-      const checkAt = startAt + BLOCK3_CHECKIN_OFFSET_MIN*60*1000;
-
-      d.scheduled.block3StartAt = startAt;
-      d.scheduled.block3CheckinAt = checkAt;
-      d.scheduled.block3SnoozesUsed = 0;
-
-      // Cancel any prior block3 scheduled pushes today
-      await cancelScheduledByTagPrefix(`b3-`);
-
-      await schedulePush(
-        `b3-start-${dayKey()}`,
-        "Block 3 starting",
-        "Quick check: what’s the one 10-minute win?",
-        startAt,
-        {
-          kind:"b3_start",
-          actions: [
-            { action:"snooze", title:"Snooze 10m" }
-          ]
-        }
-      );
-
-      await schedulePush(
-        `b3-checkin-${dayKey()}`,
-        "Block 3 check-in",
-        "How’s it going? Keep it small.",
-        checkAt,
-        { kind:"b3_checkin" }
-      );
-
-      toast(`Block 3 set for +${delay}m`);
-      return;
-    }
-
-    toast("Logged.");
+  // LOCK: prevent double-press for the day
+  if (ev === "imUp" && d.events.imUp) {
+    toast("Already logged I’m up for today.");
     return;
   }
+
+  const ts = Date.now();
+  d.events[ev] = ts;
+
+  if(ev === "imUp"){
+    const { message, subtext } = pickWakeMessage();
+
+    // full lock modal, then route to Morning tab
+    openWakeModal({
+      message,
+      subtext,
+      onDismiss: () => {
+        setActiveTab("morning");
+        toast("Morning stack. Keep it small.");
+      }
+    });
+    return;
+  }
+
+  if(ev === "babyUp"){
+    // schedule block1 check-in only
+    const sendAt = ts + CHECKIN_OFFSET_MIN*60*1000;
+    d.scheduled.block1CheckinAt = sendAt;
+
+    await schedulePush(
+      `b1-checkin-${dayKey()}`,
+      "Block 1 check-in",
+      "How’s it going? What’s the next tiny move?",
+      sendAt,
+      { kind:"b1_checkin" }
+    );
+    toast("Baby up logged.");
+    return;
+  }
+
+  if(ev === "napStart"){
+    // schedule block2 check-in only
+    const sendAt = ts + CHECKIN_OFFSET_MIN*60*1000;
+    d.scheduled.block2CheckinAt = sendAt;
+
+    await schedulePush(
+      `b2-checkin-${dayKey()}`,
+      "Block 2 check-in",
+      "How’s it going? What’s the next tiny move?",
+      sendAt,
+      { kind:"b2_checkin" }
+    );
+    toast("Nap start logged.");
+    return;
+  }
+
+  if(ev === "napEnd"){
+    // prompt 30/40/45
+    const delay = await promptBlock3Delay(); // minutes
+    if(delay == null){
+      toast("Canceled.");
+      return;
+    }
+
+    const startAt = ts + delay*60*1000;
+    const checkAt = startAt + BLOCK3_CHECKIN_OFFSET_MIN*60*1000;
+
+    d.scheduled.block3StartAt = startAt;
+    d.scheduled.block3CheckinAt = checkAt;
+    d.scheduled.block3SnoozesUsed = 0;
+
+    // Cancel any prior block3 scheduled pushes today
+    await cancelScheduledByTagPrefix(`b3-`);
+
+    await schedulePush(
+      `b3-start-${dayKey()}`,
+      "Block 3 starting",
+      "Quick check: what’s the one 10-minute win?",
+      startAt,
+      {
+        kind:"b3_start",
+        actions: [
+          { action:"snooze", title:"Snooze 10m" }
+        ]
+      }
+    );
+
+    await schedulePush(
+      `b3-checkin-${dayKey()}`,
+      "Block 3 check-in",
+      "How’s it going? Keep it small.",
+      checkAt,
+      { kind:"b3_checkin" }
+    );
+
+    toast(`Block 3 set for +${delay}m`);
+    return;
+  }
+
+  toast("Logged.");
+  return;
 }
+
 
 // Modal-less prompt for MVP (simple)
 function promptBlock3Delay(){
