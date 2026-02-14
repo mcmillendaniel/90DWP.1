@@ -935,9 +935,8 @@ async function importData(){
   document.body.classList.remove("locked");
 
   ensureDay(dayKey());
-  try { await registerServiceWorker(); } catch {}
+try { await registerServiceWorker(); } catch (e) {}
   render();
-  ...
 })();
 
 
