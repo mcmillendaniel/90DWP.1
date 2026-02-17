@@ -3,7 +3,7 @@
    - Tabs: home, checkoffs, morning, history, settings
 */
 
-const WORKER_BASE_URL = ""; // <-- you will paste your Cloudflare Worker URL here later
+const WORKER_BASE_URL = "https://90dwp-push.mcmillendaniel.workers.dev";
 
 const RESET_HOUR = 4;                 // 4:00am daily reset
 const HARD_CUTOFF_HOUR = 17;          // 5:00pm cutoff for work pushes
