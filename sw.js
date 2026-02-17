@@ -2,7 +2,7 @@
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open("90dwp-v1").then((cache) => cache.addAll([
+    caches.open("90dwp-v2").then((cache) => cache.addAll([
       "./",
       "./index.html",
       "./styles.css",
