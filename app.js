@@ -374,7 +374,7 @@ async function schedulePush(tag, title, body, sendAtMs, extra = {}){
     title,
     body,
     sendAt: sendAtMs,
-    url: "./index.html",
+    url: location.origin + location.pathname
     ...extra
   };
   await fetch(`${WORKER_BASE_URL}/schedule`, {
@@ -962,6 +962,17 @@ async function handleSnoozeFromNotif(data){
 
   const newAt = Date.now() + 10*60*1000;
   d.scheduled.block3StartAt = newAt;
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("message", (event) => {
+    if (event.data?.type !== "NOTIF_ACTION") return;
+
+    // Snooze button from notification (Block 3 start)
+    if (event.data.action === "snooze" && event.data.data?.kind === "b3_start") {
+      handleSnoozeFromNotif(event.data.data);
+      return;
+    }
+  });
+}
 
   // reschedule: cancel existing b3-start + create a new one
   await cancelScheduledByTagPrefix(`b3-start-${dayKey()}`);
