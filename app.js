@@ -264,7 +264,16 @@ let state = loadState();
 saveState();
 
 let currentTab = "home";
+// Listen for notification action messages from sw.js (e.g., Snooze)
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("message", (event) => {
+    if (event.data?.type !== "NOTIF_ACTION") return;
 
+    if (event.data.action === "snooze" && event.data.data?.kind === "b3_start") {
+      handleSnoozeFromNotif(event.data.data);
+    }
+  });
+}
 // ----- Push Registration -----
 
 async function registerServiceWorker(){
@@ -374,8 +383,7 @@ async function schedulePush(tag, title, body, sendAtMs, extra = {}){
     title,
     body,
     sendAt: sendAtMs,
-    url: location.origin + location.pathname
-    ...extra
+    url: location.origin + location.pathname, ...extra
   };
   await fetch(`${WORKER_BASE_URL}/schedule`, {
     method: "POST",
@@ -755,8 +763,7 @@ async function handleAction(act){
   const ts = Date.now();
   d.events[ev] = ts;
 
-  if(ev === "imUp"){
-    const { message, subtext } = pickWakeMessage();
+
 
     // full lock modal, then route to Morning tab
     openWakeModal({
