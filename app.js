@@ -7,8 +7,8 @@ const WORKER_BASE_URL = "https://90dwp-push.mcmillendaniel.workers.dev";
 
 const RESET_HOUR = 4;                 // 4:00am daily reset
 const HARD_CUTOFF_HOUR = 17;          // 5:00pm cutoff for work pushes
-const CHECKIN_OFFSET_MIN = 45;        // block 1/2 check-in offset
-const BLOCK3_CHECKIN_OFFSET_MIN = 30; // block3 check-in after start
+const CHECKIN_OFFSET_MIN = 1;        // block 1/2 check-in offset
+const BLOCK3_CHECKIN_OFFSET_MIN = 1; // block3 check-in after start
 
 const $ = (id) => document.getElementById(id);
 function safeUUID(){
