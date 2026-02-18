@@ -377,14 +377,15 @@ async function schedulePush(tag, title, body, sendAtMs, extra = {}){
   const when = new Date(sendAtMs);
   if(isAfterCutoff(when)) return;
 
-  const payload = {
+  const payload = Object.assign({
     deviceId: state.deviceId,
     tag,
     title,
     body,
     sendAt: sendAtMs,
-    url: location.origin + location.pathname, ...extra
-  };
+    url: location.origin + location.pathname
+  }, (extra && typeof extra === "object") ? extra : {});
+
   await fetch(`${WORKER_BASE_URL}/schedule`, {
     method: "POST",
     headers: {"Content-Type":"application/json"},
