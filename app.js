@@ -855,7 +855,7 @@ async function handleAction(act){
 
   toast("Logged.");
   return;
-} // end event:
+// end event:
 
 } // end handleAction
 
