@@ -303,12 +303,18 @@ async function subscribeToPush(reg){
   const { publicKey } = await r.json();
   const appServerKey = urlBase64ToUint8Array(publicKey);
 
-  const sub = await reg.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: appServerKey
-  });
-  return sub;
+// Clear any stale subscription first
+const existing = await reg.pushManager.getSubscription();
+if (existing) {
+  try { await existing.unsubscribe(); } catch {}
 }
+
+const sub = await reg.pushManager.subscribe({
+  userVisibleOnly: true,
+  applicationServerKey: appServerKey
+});
+
+return sub;
 
 async function sendSubscriptionToWorker(sub){
   const payload = {
