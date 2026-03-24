@@ -315,7 +315,7 @@ const sub = await reg.pushManager.subscribe({
 });
 
 return sub;
-
+}
 async function sendSubscriptionToWorker(sub){
   const payload = {
     deviceId: state.deviceId,
