@@ -213,8 +213,16 @@ function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
   const rawData = atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
+  let outputArray = new Uint8Array(rawData.length);
   for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  // P-256 uncompressed public keys must be 65 bytes starting with 0x04
+  // If key is 64 bytes, prepend the missing 0x04 uncompressed point prefix
+  if (outputArray.length === 64) {
+    const fixed = new Uint8Array(65);
+    fixed[0] = 0x04;
+    fixed.set(outputArray, 1);
+    outputArray = fixed;
+  }
   return outputArray;
 }
 
