@@ -1,30 +1,21 @@
-/* 90DWP - MVP PWA (local storage + web push registration + scheduling via Worker)
-   - Reset at 4:00am local
-   - Tabs: home, checkoffs, morning, history, settings
-*/
-
+/* 90DWP - MVP PWA (local storage + web push registration + scheduling via Worker) - Reset at 4:00am local - Tabs: home, checkoffs, morning, history, settings */
 const WORKER_BASE_URL = "https://90dwp-push.mcmillendaniel.workers.dev";
-
-const RESET_HOUR = 4;                 // 4:00am daily reset
-const HARD_CUTOFF_HOUR = 17;          // 5:00pm cutoff for work pushes
-const CHECKIN_OFFSET_MIN = 1;        // block 1/2 check-in offset
+const RESET_HOUR = 4; // 4:00am daily reset
+const HARD_CUTOFF_HOUR = 17; // 5:00pm cutoff for work pushes
+const CHECKIN_OFFSET_MIN = 1; // block 1/2 check-in offset
 const BLOCK3_CHECKIN_OFFSET_MIN = 1; // block3 check-in after start
 
 const $ = (id) => document.getElementById(id);
+
 function safeUUID(){
-  if (crypto && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
+  if (crypto && typeof crypto.randomUUID === "function") { return crypto.randomUUID(); }
   return `dev-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 // ----- Wake Lock Modal + Motivation Messages -----
-
 let wakeModalEl = null;
-
 function ensureWakeModal(){
   if (wakeModalEl) return wakeModalEl;
-
   const wrap = document.createElement("div");
   wrap.className = "wake-modal";
   wrap.id = "wakeModal";
@@ -44,12 +35,9 @@ function ensureWakeModal(){
 function openWakeModal({ message, subtext, onDismiss }){
   ensureWakeModal();
   document.body.classList.add("locked");
-
   $("wakeMsg").textContent = message;
   $("wakeSub").textContent = subtext;
-
   wakeModalEl.classList.add("show");
-
   const btn = $("wakeBtn");
   btn.onclick = () => {
     wakeModalEl.classList.remove("show");
@@ -58,90 +46,70 @@ function openWakeModal({ message, subtext, onDismiss }){
   };
 }
 
+// FIX 1: getWakeStats closes properly — pickWakeMessage nested copy removed
 function getWakeStats(){
-  // Returns: { streakDays, consistencyScore } based on last 7 days with imUp timestamps
-  const keys = Object.keys(state.days).sort(); // ascending
+  const keys = Object.keys(state.days).sort();
   const last7 = keys.slice(-7);
-
   const wakeTimes = [];
   for (const k of last7) {
     const ts = state.days[k]?.events?.imUp;
     if (ts) {
       const d = new Date(ts);
-      wakeTimes.push(d.getHours() * 60 + d.getMinutes()); // minutes since midnight
+      wakeTimes.push(d.getHours() * 60 + d.getMinutes());
     }
   }
-
-  // streak: consecutive days ending today where imUp exists
   let streak = 0;
-  const today = dayKey();
-  const sorted = Object.keys(state.days).sort().reverse(); // newest -> oldest
+  const sorted = Object.keys(state.days).sort().reverse();
   for (const k of sorted) {
     if (!state.days[k]?.events?.imUp) break;
     streak += 1;
-    // stop once we pass 14 for sanity
     if (streak >= 14) break;
-    // also stop if we hit a gap day (missing day in store)
-    // (We keep it simple: streak is “consecutive logged days available in state”.)
   }
-
-  // consistency: lower spread => higher score
-  // We'll use a simple range (max-min) in minutes across last 7 wake logs.
-  let consistencyScore = 0; // 0..1
+  let consistencyScore = 0;
   if (wakeTimes.length >= 3) {
     const min = Math.min(...wakeTimes);
     const max = Math.max(...wakeTimes);
-    const range = max - min; // minutes
-    // 0 mins range => 1.0; 90+ mins range => near 0
+    const range = max - min;
     consistencyScore = Math.max(0, Math.min(1, 1 - (range / 90)));
   }
-
   return { streakDays: streak, consistencyScore };
 }
 
+// FIX 1: Single top-level pickWakeMessage only
 function pickWakeMessage(){
-  const { streakDays, consistencyScore } = getWakeStats();
-
-  // Tiering:
-  // - Early: hype/aggressive
-  // - Mid: mixed
-  // - Solid + consistent: supportive
-  const supportiveGate = (streakDays >= 7) || (streakDays >= 4 && consistencyScore >= 0.6);
-  const mixedGate = (streakDays >= 3);
-
-  const hype = [
-    "Feet on floor. Stand up now. No negotiations.",
-    "Up. Water. Move. We’re not thinking—just executing.",
-    "Get vertical. Your day starts when you move.",
-    "Stand up. One small win in the next 10 minutes. Go."
-  ];
-
-  const mixed = [
-    "Alright—let’s move. Small wins first, momentum second.",
-    "Up we go. One 10-minute action to start the chain.",
-    "Stand up, breathe, move. Then we decide the first win."
-  ];
-
-  const dad = [
-    "Up we go—quiet, steady, on purpose. One small win first.",
-    "Good morning. Let’s secure the day with three simple outcomes.",
-    "We’re building consistency. One step, then the next."
-  ];
-
-  const pool = supportiveGate ? dad : (mixedGate ? mixed : hype);
-
-  // rotate daily by dayKey so you get variety but stable for that day
-  const seed = dayKey().split("-").join("");
-  const idx = Number(seed) % pool.length;
-
-  const message = pool[idx];
-  const subtext = supportiveGate
-    ? `Streak: ${streakDays} day(s). Consistency: ${(consistencyScore*100)|0}%`
-    : mixedGate
-      ? `Streak: ${streakDays} day(s). Keep it small and clean.`
-      : `We start before we feel ready.`;
-
-  return { message, subtext };
+  try {
+    const { streakDays, consistencyScore } = getWakeStats();
+    const supportiveGate = (streakDays >= 7) || (streakDays >= 4 && consistencyScore >= 0.6);
+    const mixedGate = (streakDays >= 3);
+    const hype = [
+      "Feet on floor. Stand up now. No negotiations.",
+      "Up. Water. Move. We're not thinking—just executing.",
+      "Get vertical. Your day starts when you move.",
+      "Stand up. One small win in the next 10 minutes. Go."
+    ];
+    const mixed = [
+      "Alright—let's move. Small wins first, momentum second.",
+      "Up we go. One 10-minute action to start the chain.",
+      "Stand up, breathe, move. Then we decide the first win."
+    ];
+    const dad = [
+      "Up we go—quiet, steady, on purpose. One small win first.",
+      "Good morning. Let's secure the day with three simple outcomes.",
+      "We're building consistency. One step, then the next."
+    ];
+    const pool = supportiveGate ? dad : (mixedGate ? mixed : hype);
+    const seed = dayKey().split("-").join("");
+    const idx = Number(seed) % pool.length;
+    const message = pool[idx];
+    const subtext = supportiveGate
+      ? `Streak: ${streakDays} day(s). Consistency: ${(consistencyScore*100)|0}%`
+      : mixedGate
+        ? `Streak: ${streakDays} day(s). Keep it small and clean.`
+        : `We start before we feel ready.`;
+    return { message, subtext };
+  } catch (e) {
+    return { message: "Stand up. Move your body.", subtext: "Small wins first." };
+  }
 }
 
 function toast(msg){
@@ -154,7 +122,6 @@ function toast(msg){
 function now(){ return new Date(); }
 
 function dayKey(d = now()){
-  // shift by RESET_HOUR so that "day" starts at 4am
   const shifted = new Date(d.getTime() - RESET_HOUR*60*60*1000);
   return shifted.toISOString().slice(0,10);
 }
@@ -167,16 +134,8 @@ function fmtTime(ts){
 
 function loadState(){
   const raw = localStorage.getItem("90dwp_state_v1");
-  if(raw){
-    try { return JSON.parse(raw); } catch {}
-  }
-  return {
-deviceId: safeUUID(),
-    days: {},
-    settings: {
-      pushEnabled: false
-    }
-  };
+  if(raw){ try { return JSON.parse(raw); } catch {} }
+  return { deviceId: safeUUID(), days: {}, settings: { pushEnabled: false } };
 }
 
 function saveState(){
@@ -189,25 +148,9 @@ function ensureDay(k){
       createdAt: Date.now(),
       outcomes: ["","",""],
       outcomesDone: [false,false,false],
-      events: {
-        imUp: null,
-        babyUp: null,
-        napStart: null,
-        napEnd: null
-      },
-      morning: {
-        movement: null,
-        shower: null,
-        outcomesWritten: null,
-        meds: null
-      },
-      scheduled: {
-        block1CheckinAt: null,
-        block2CheckinAt: null,
-        block3StartAt: null,
-        block3CheckinAt: null,
-        block3SnoozesUsed: 0
-      }
+      events: { imUp: null, babyUp: null, napStart: null, napEnd: null },
+      morning: { movement: null, shower: null, outcomesWritten: null, meds: null },
+      scheduled: { block1CheckinAt: null, block2CheckinAt: null, block3StartAt: null, block3CheckinAt: null, block3SnoozesUsed: 0 }
     };
   }
   return state.days[k];
@@ -215,20 +158,19 @@ function ensureDay(k){
 
 let state = loadState();
 saveState();
-
 let currentTab = "home";
-// Listen for notification action messages from sw.js (e.g., Snooze)
+
+// FIX 4: Single service worker listener at top level only
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (event) => {
     if (event.data?.type !== "NOTIF_ACTION") return;
-
     if (event.data.action === "snooze" && event.data.data?.kind === "b3_start") {
       handleSnoozeFromNotif(event.data.data);
     }
   });
 }
-// ----- Push Registration -----
 
+// ----- Push Registration -----
 async function registerServiceWorker(){
   if(!("serviceWorker" in navigator)) return false;
   const reg = await navigator.serviceWorker.register("./sw.js");
@@ -247,34 +189,18 @@ async function getPushSubscription(reg){
 }
 
 async function subscribeToPush(reg){
-  // We’ll get the VAPID public key from the Worker
-  if(!WORKER_BASE_URL){
-    toast("Add Worker URL in app.js first.");
-    return null;
-  }
+  if(!WORKER_BASE_URL){ toast("Add Worker URL in app.js first."); return null; }
   const r = await fetch(`${WORKER_BASE_URL}/vapidPublicKey`);
   const { publicKey } = await r.json();
   const appServerKey = urlBase64ToUint8Array(publicKey);
-
-// Clear any stale subscription first
-const existing = await reg.pushManager.getSubscription();
-if (existing) {
-  try { await existing.unsubscribe(); } catch {}
-}
-
-const sub = await reg.pushManager.subscribe({
-  userVisibleOnly: true,
-  applicationServerKey: appServerKey
-});
-
-return sub;
+  const existing = await reg.pushManager.getSubscription();
+  if (existing) { try { await existing.unsubscribe(); } catch {} }
+  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appServerKey });
+  return sub;
 }
 
 async function sendSubscriptionToWorker(sub){
-  const payload = {
-    deviceId: state.deviceId,
-    subscription: sub
-  };
+  const payload = { deviceId: state.deviceId, subscription: sub };
   const r = await fetch(`${WORKER_BASE_URL}/subscribe`, {
     method: "POST",
     headers: {"Content-Type":"application/json"},
@@ -293,21 +219,37 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 async function enablePushFlow(){
-  if(!WORKER_BASE_URL){
-    toast("Worker URL not set.");
-    return;
+  if(!WORKER_BASE_URL){ toast("Worker URL not set."); return; }
+  let reg, sub;
+  try {
+    reg = await registerServiceWorker();
+    console.log("[push] Step 1 SW reg OK:", reg);
+  } catch(e) {
+    console.error("[push] Step 1 SW reg failed:", e);
+    toast("Push failed: SW reg — " + e.message); return;
   }
-  const reg = await registerServiceWorker();
-  const ok = await requestPushPermission();
-  if(!ok){
-    toast("Push permission not granted.");
-    return;
+  try {
+    const ok = await requestPushPermission();
+    console.log("[push] Step 2 permission:", ok);
+    if(!ok){ toast("Push permission not granted."); return; }
+  } catch(e) {
+    console.error("[push] Step 2 permission failed:", e);
+    toast("Push failed: permission — " + e.message); return;
   }
-  let sub = await getPushSubscription(reg);
-  if(!sub){
+  try {
     sub = await subscribeToPush(reg);
+    console.log("[push] Step 3 subscribe OK:", sub);
+  } catch(e) {
+    console.error("[push] Step 3 subscribe failed:", e);
+    toast("Push failed: subscribe — " + e.message); return;
   }
-  await sendSubscriptionToWorker(sub);
+  try {
+    await sendSubscriptionToWorker(sub);
+    console.log("[push] Step 4 sent to worker OK");
+  } catch(e) {
+    console.error("[push] Step 4 send to worker failed:", e);
+    toast("Push failed: worker — " + e.message); return;
+  }
   state.settings.pushEnabled = true;
   saveState();
   toast("Push enabled ✅");
@@ -325,27 +267,17 @@ async function disablePushFlow(){
 }
 
 // ----- Scheduling helpers -----
-
-function isAfterCutoff(dateObj){
-  return dateObj.getHours() >= HARD_CUTOFF_HOUR;
-}
+function isAfterCutoff(dateObj){ return dateObj.getHours() >= HARD_CUTOFF_HOUR; }
 
 async function schedulePush(tag, title, body, sendAtMs, extra = {}){
   if(!state.settings.pushEnabled) return;
   if(!WORKER_BASE_URL) return;
-
   const when = new Date(sendAtMs);
   if(isAfterCutoff(when)) return;
-
   const payload = Object.assign({
-    deviceId: state.deviceId,
-    tag,
-    title,
-    body,
-    sendAt: sendAtMs,
-    url: location.origin + location.pathname
+    deviceId: state.deviceId, tag, title, body,
+    sendAt: sendAtMs, url: location.origin + location.pathname
   }, (extra && typeof extra === "object") ? extra : {});
-
   await fetch(`${WORKER_BASE_URL}/schedule`, {
     method: "POST",
     headers: {"Content-Type":"application/json"},
@@ -364,7 +296,6 @@ async function cancelScheduledByTagPrefix(prefix){
 }
 
 // ----- UI rendering -----
-
 function setActiveTab(tab){
   currentTab = tab;
   document.querySelectorAll(".tab").forEach(b=>{
@@ -377,14 +308,10 @@ function computeTicker(){
   const d = ensureDay(dayKey());
   const total = 3;
   const done = d.outcomesDone.filter(Boolean).length;
-
-  // Indicator color
   const ind = $("tickerIndicator");
   if(done === 0) ind.style.background = "var(--red)";
   else if(done < total) ind.style.background = "var(--yellow)";
   else ind.style.background = "var(--green)";
-
-  // Text: scrolling-ish by rotating content every few seconds (simple)
   const texts = d.outcomes.map((t,i)=> (t?.trim() ? `${i+1}) ${t}` : `${i+1}) [empty]`));
   return { done, total, texts };
 }
@@ -400,29 +327,26 @@ setInterval(()=>{
 function renderHome(){
   const k = dayKey();
   const d = ensureDay(k);
-
   return `
     <section class="card">
       <h2 class="h2">Today</h2>
       <div class="small">Day resets at 4:00am • Work pushes stop after 5:00pm</div>
     </section>
-
     <section class="card">
       <h2 class="h2">Events</h2>
       <div class="row">
-        <button class="btn" data-action="event:imUp">I’m up</button>
+        <button class="btn" data-action="event:imUp">I'm up</button>
         <button class="btn" data-action="event:babyUp">Baby up</button>
         <button class="btn" data-action="event:napStart">Nap start</button>
         <button class="btn" data-action="event:napEnd">Nap end</button>
       </div>
       <div class="small" style="margin-top:10px">
-        I’m up: <b>${fmtTime(d.events.imUp)}</b> •
+        I'm up: <b>${fmtTime(d.events.imUp)}</b> •
         Baby up: <b>${fmtTime(d.events.babyUp)}</b> •
         Nap start: <b>${fmtTime(d.events.napStart)}</b> •
         Nap end: <b>${fmtTime(d.events.napEnd)}</b>
       </div>
     </section>
-
     <section class="card">
       <h2 class="h2">Block reminders</h2>
       <div class="small">
@@ -446,23 +370,19 @@ function renderCheckoffs(){
           <div class="item-sub">${txt?.trim() ? escapeHtml(txt) : "—"}</div>
         </div>
         <label class="pill">
-          <input type="checkbox" data-action="toggleOutcome:${i}" ${checked} />
-          Done
+          <input type="checkbox" data-action="toggleOutcome:${i}" ${checked} /> Done
         </label>
       </div>
     `;
   }).join("");
-
   const suggestions = buildSuggestions();
-
   return `
     <section class="card">
       <h2 class="h2">Write your 3 Outcomes</h2>
       <div class="small">Keep each one under ~10 minutes.</div>
       <div class="list" style="margin-top:10px">
         ${[0,1,2].map(i=>`
-          <textarea class="input" rows="2" placeholder="Outcome ${i+1}"
-            data-action="editOutcome:${i}">${escapeHtml(d.outcomes[i] || "")}</textarea>
+          <textarea class="input" rows="2" placeholder="Outcome ${i+1}" data-action="editOutcome:${i}">${escapeHtml(d.outcomes[i] || "")}</textarea>
         `).join("")}
       </div>
       <div class="row" style="margin-top:10px">
@@ -473,12 +393,9 @@ function renderCheckoffs(){
         Suggestion: <b id="suggestionText">${escapeHtml(suggestions.current || "—")}</b>
       </div>
     </section>
-
     <section class="card">
       <h2 class="h2">Check off</h2>
-      <div class="list">
-        ${rows}
-      </div>
+      <div class="list">${rows}</div>
     </section>
   `;
 }
@@ -491,7 +408,6 @@ function renderMorning(){
     ["outcomesWritten","Outcomes written", d.morning.outcomesWritten],
     ["meds","Meds taken", d.morning.meds],
   ];
-
   return `
     <section class="card">
       <h2 class="h2">Morning Stack</h2>
@@ -520,13 +436,12 @@ function renderHistory(){
       <div class="item">
         <div class="item-left">
           <div class="item-title">${k}</div>
-          <div class="item-sub">Outcomes: ${done}/3 • I’m up: ${fmtTime(d.events?.imUp)} • Baby up: ${fmtTime(d.events?.babyUp)}</div>
+          <div class="item-sub">Outcomes: ${done}/3 • I'm up: ${fmtTime(d.events?.imUp)} • Baby up: ${fmtTime(d.events?.babyUp)}</div>
         </div>
         <div class="pill">${done === 3 ? "✅" : done === 0 ? "—" : "…"}</div>
       </div>
     `;
   }).join("");
-
   return `
     <section class="card">
       <h2 class="h2">History (last 7 days)</h2>
@@ -539,19 +454,16 @@ function renderSettings(){
   return `
     <section class="card">
       <h2 class="h2">Settings</h2>
-
       <div class="item">
         <div class="item-left">
           <div class="item-title">Push Notifications</div>
           <div class="item-sub">${state.settings.pushEnabled ? "Enabled" : "Disabled"} (iPhone PWA)</div>
         </div>
-        ${
-          state.settings.pushEnabled
-            ? `<button class="btn" style="flex:0 0 auto" data-action="push:disable">Disable</button>`
-            : `<button class="btn" style="flex:0 0 auto" data-action="push:enable">Enable</button>`
+        ${state.settings.pushEnabled
+          ? `<button class="btn" style="flex:0 0 auto" data-action="push:disable">Disable</button>`
+          : `<button class="btn" style="flex:0 0 auto" data-action="push:enable">Enable</button>`
         }
       </div>
-
       <div class="item">
         <div class="item-left">
           <div class="item-title">Export</div>
@@ -559,7 +471,6 @@ function renderSettings(){
         </div>
         <button class="btn" style="flex:0 0 auto" data-action="export">Export</button>
       </div>
-
       <div class="item">
         <div class="item-left">
           <div class="item-title">Import</div>
@@ -567,7 +478,6 @@ function renderSettings(){
         </div>
         <button class="btn" style="flex:0 0 auto" data-action="import">Import</button>
       </div>
-
       <div class="small" style="margin-top:10px">
         Device ID: <b>${state.deviceId}</b>
       </div>
@@ -576,25 +486,21 @@ function renderSettings(){
 }
 
 function render(){
-  computeTicker(); // update indicator
+  computeTicker();
   const main = $("main");
-
   if(currentTab === "home") main.innerHTML = renderHome();
   else if(currentTab === "checkoffs") main.innerHTML = renderCheckoffs();
   else if(currentTab === "morning") main.innerHTML = renderMorning();
   else if(currentTab === "history") main.innerHTML = renderHistory();
   else if(currentTab === "settings") main.innerHTML = renderSettings();
-
   wireActions();
 }
 
 function wireActions(){
   document.querySelectorAll("[data-action]").forEach(el=>{
     const act = el.getAttribute("data-action");
-    // textareas: input event
     if(el.tagName === "TEXTAREA"){
       el.oninput = () => {
-        // no auto-save; we store in a draft field on day object
         const [_, idxStr] = act.split(":");
         const idx = Number(idxStr);
         const d = ensureDay(dayKey());
@@ -603,7 +509,6 @@ function wireActions(){
       };
       return;
     }
-
     el.onclick = async () => {
       try {
         await handleAction(act, el);
@@ -615,14 +520,12 @@ function wireActions(){
       }
     };
   });
-
   document.querySelectorAll(".tab").forEach(btn=>{
     btn.onclick = () => setActiveTab(btn.dataset.tab);
   });
 }
 
 function buildSuggestions(){
-  // "Slightly smarter": look at most recent day with unfinished outcomes and propose first unfinished
   const keys = Object.keys(state.days).sort().reverse();
   for(const k of keys){
     const d = state.days[k];
@@ -644,182 +547,7 @@ function escapeHtml(s){
     .replaceAll("'","&#039;");
 }
 
-// ----- Actions -----
-
-async function handleAction(act){
-  const d = ensureDay(dayKey());
-
-  if(act === "saveOutcomes"){
-    toast("Saved.");
-    return;
-  }
-
-  if(act === "applySuggestion"){
-    const sug = buildSuggestions().current;
-    if(!sug){
-      toast("No suggestion found.");
-      return;
-    }
-    // Put suggestion into first empty outcome slot, else overwrite #3
-    let idx = d.outcomes.findIndex(x=>!x?.trim());
-    if(idx === -1) idx = 2;
-    d.outcomes[idx] = sug;
-    toast("Added suggestion.");
-    return;
-  }
-
-  if(act.startsWith("toggleOutcome:")){
-    const idx = Number(act.split(":")[1]);
-    d.outcomesDone[idx] = !d.outcomesDone[idx];
-    if(d.outcomesDone.every(Boolean)){
-      // dopamine: subtle + tiny celebration text
-      toast("Day secured ✅🔥");
-      // optional push celebration (light)
-      await schedulePush(
-        `celebrate-${dayKey()}`,
-        "90DWP",
-        "Day secured. Nice work.",
-        Date.now() + 1000
-      );
-    }
-    return;
-  }
-
-  if(act.startsWith("morning:")){
-    const key = act.split(":")[1];
-    d.morning[key] = Date.now();
-
-    // If they log outcomesWritten here, we do NOT auto-check outcomes — this is just stack tracking
-    toast("Logged.");
-    return;
-  }
-
-  if(act === "push:enable"){
-    await enablePushFlow();
-    return;
-  }
-  if(act === "push:disable"){
-    await disablePushFlow();
-    return;
-  }
-
-  if(act === "export"){
-    exportData();
-    return;
-  }
-  if(act === "import"){
-    await importData();
-    return;
-  }
-
- if(act.startsWith("event:")){
-  const ev = act.split(":")[1];
-
-  // LOCK: prevent double-press for the day
-  if (ev === "imUp" && d.events.imUp) {
-    toast("Already logged I’m up for today.");
-    return;
-  }
-
-  const ts = Date.now();
-  d.events[ev] = ts;
-
-  if (ev === "imUp") {
-    const { message, subtext } = pickWakeMessage();
-    // full lock modal, then route to Morning tab
-    openWakeModal({
-      message,
-      subtext,
-      onDismiss: () => {
-        setActiveTab("morning");
-        toast("Morning stack. Keep it small.");
-      }
-    });
-    return;
-  }
-
-  if(ev === "babyUp"){
-    // schedule block1 check-in only
-    const sendAt = ts + CHECKIN_OFFSET_MIN*60*1000;
-    d.scheduled.block1CheckinAt = sendAt;
-
-    await schedulePush(
-      `b1-checkin-${dayKey()}`,
-      "Block 1 check-in",
-      "How’s it going? What’s the next tiny move?",
-      sendAt,
-      { kind:"b1_checkin" }
-    );
-    toast("Baby up logged.");
-    return;
-  }
-
-  if(ev === "napStart"){
-    // schedule block2 check-in only
-    const sendAt = ts + CHECKIN_OFFSET_MIN*60*1000;
-    d.scheduled.block2CheckinAt = sendAt;
-
-    await schedulePush(
-      `b2-checkin-${dayKey()}`,
-      "Block 2 check-in",
-      "How’s it going? What’s the next tiny move?",
-      sendAt,
-      { kind:"b2_checkin" }
-    );
-    toast("Nap start logged.");
-    return;
-  }
-
-  if(ev === "napEnd"){
-    // prompt 30/40/45
-    const delay = await promptBlock3Delay(); // minutes
-    if(delay == null){
-      toast("Canceled.");
-      return;
-    }
-
-    const startAt = ts + delay*60*1000;
-    const checkAt = startAt + BLOCK3_CHECKIN_OFFSET_MIN*60*1000;
-
-    d.scheduled.block3StartAt = startAt;
-    d.scheduled.block3CheckinAt = checkAt;
-    d.scheduled.block3SnoozesUsed = 0;
-
-    // Cancel any prior block3 scheduled pushes today
-    await cancelScheduledByTagPrefix(`b3-`);
-
-    await schedulePush(
-      `b3-start-${dayKey()}`,
-      "Block 3 starting",
-      "Quick check: what’s the one 10-minute win?",
-      startAt,
-      {
-        kind:"b3_start",
-        actions: [
-          { action:"snooze", title:"Snooze 10m" }
-        ]
-      }
-    );
-
-    await schedulePush(
-      `b3-checkin-${dayKey()}`,
-      "Block 3 check-in",
-      "How’s it going? Keep it small.",
-      checkAt,
-      { kind:"b3_checkin" }
-    );
-
-    toast(`Block 3 set for +${delay}m`);
-    return;
-  }
-
-  toast("Logged.");
-  return;
-} // end event:
-
-} // end handleAction
-
-// Modal-less prompt for MVP (simple)
+// ----- Modal-less prompt -----
 function promptBlock3Delay(){
   return new Promise((resolve)=>{
     const choice = window.prompt("Block 3 delay after Nap End? Type 30, 40, or 45:", "40");
@@ -831,12 +559,9 @@ function promptBlock3Delay(){
 }
 
 // ----- Export/Import -----
-
 function exportData(){
   const json = JSON.stringify(state, null, 2);
   downloadFile(`90dwp-backup-${Date.now()}.json`, json, "application/json");
-
-  // CSV: just outcomes per day (simple)
   const rows = [["date","outcome1","done1","outcome2","done2","outcome3","done3","imUp","babyUp","napStart","napEnd"]];
   Object.keys(state.days).sort().forEach(k=>{
     const d = state.days[k];
@@ -851,7 +576,6 @@ function exportData(){
       d.events?.napEnd ? new Date(d.events.napEnd).toISOString() : ""
     ]);
   });
-
   const csv = rows.map(r=>r.map(csvEscape).join(",")).join("\n");
   downloadFile(`90dwp-export-${Date.now()}.csv`, csv, "text/csv");
   toast("Exported.");
@@ -869,11 +593,9 @@ function downloadFile(filename, contents, mime){
   const blob = new Blob([contents], {type:mime});
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
+  a.href = url; a.download = filename;
   document.body.appendChild(a);
-  a.click();
-  a.remove();
+  a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
 
@@ -888,7 +610,6 @@ async function importData(){
     reader.onload = () => {
       try{
         const parsed = JSON.parse(reader.result);
-        // preserve current deviceId unless file has one AND user wants it (keep simple: keep current)
         const currentDeviceId = state.deviceId;
         state = parsed;
         state.deviceId = currentDeviceId;
@@ -904,48 +625,129 @@ async function importData(){
   input.click();
 }
 
+// ----- Actions -----
+// FIX 2 & 3: handleAction is self-contained; ev blocks are inside event: branch
+async function handleAction(act){
+  const d = ensureDay(dayKey());
+
+  if(act === "saveOutcomes"){ toast("Saved."); return; }
+
+  if(act === "applySuggestion"){
+    const sug = buildSuggestions().current;
+    if(!sug){ toast("No suggestion found."); return; }
+    let idx = d.outcomes.findIndex(x=>!x?.trim());
+    if(idx === -1) idx = 2;
+    d.outcomes[idx] = sug;
+    toast("Added suggestion.");
+    return;
+  }
+
+  if(act.startsWith("toggleOutcome:")){
+    const idx = Number(act.split(":")[1]);
+    d.outcomesDone[idx] = !d.outcomesDone[idx];
+    if(d.outcomesDone.every(Boolean)){
+      toast("Day secured ✅🔥");
+      await schedulePush(`celebrate-${dayKey()}`, "90DWP", "Day secured. Nice work.", Date.now() + 1000);
+    }
+    return;
+  }
+
+  if(act.startsWith("morning:")){
+    const key = act.split(":")[1];
+    d.morning[key] = Date.now();
+    toast("Logged.");
+    return;
+  }
+
+  if(act === "push:enable"){ await enablePushFlow(); return; }
+  if(act === "push:disable"){ await disablePushFlow(); return; }
+  if(act === "export"){ exportData(); return; }
+  if(act === "import"){ await importData(); return; }
+
+  if(act.startsWith("event:")){
+    const ev = act.split(":")[1];
+    if (ev === "imUp" && d.events.imUp) {
+      toast("Already logged I'm up for today.");
+      return;
+    }
+    const ts = Date.now();
+    d.events[ev] = ts;
+
+    // FIX 2: imUp wake modal — message/subtext now properly sourced
+    if(ev === "imUp"){
+      const { message, subtext } = pickWakeMessage();
+      openWakeModal({
+        message,
+        subtext,
+        onDismiss: () => {
+          setActiveTab("morning");
+          toast("Morning stack. Keep it small.");
+        }
+      });
+      return;
+    }
+
+    // FIX 2: babyUp/napStart/napEnd now inside event: block where ev is defined
+    if(ev === "babyUp"){
+      const sendAt = ts + CHECKIN_OFFSET_MIN*60*1000;
+      d.scheduled.block1CheckinAt = sendAt;
+      await schedulePush(`b1-checkin-${dayKey()}`, "Block 1 check-in", "How's it going? What's the next tiny move?", sendAt, { kind:"b1_checkin" });
+      toast("Baby up logged.");
+      return;
+    }
+
+    if(ev === "napStart"){
+      const sendAt = ts + CHECKIN_OFFSET_MIN*60*1000;
+      d.scheduled.block2CheckinAt = sendAt;
+      await schedulePush(`b2-checkin-${dayKey()}`, "Block 2 check-in", "How's it going? What's the next tiny move?", sendAt, { kind:"b2_checkin" });
+      toast("Nap start logged.");
+      return;
+    }
+
+    if(ev === "napEnd"){
+      const delay = await promptBlock3Delay();
+      if(delay == null){ toast("Canceled."); return; }
+      const startAt = ts + delay*60*1000;
+      const checkAt = startAt + BLOCK3_CHECKIN_OFFSET_MIN*60*1000;
+      d.scheduled.block3StartAt = startAt;
+      d.scheduled.block3CheckinAt = checkAt;
+      d.scheduled.block3SnoozesUsed = 0;
+      await cancelScheduledByTagPrefix(`b3-`);
+      await schedulePush(`b3-start-${dayKey()}`, "Block 3 starting", "Quick check: what's the one 10-minute win?", startAt, { kind:"b3_start", actions: [{ action:"snooze", title:"Snooze 10m" }] });
+      await schedulePush(`b3-checkin-${dayKey()}`, "Block 3 check-in", "How's it going? Keep it small.", checkAt, { kind:"b3_checkin" });
+      toast(`Block 3 set for +${delay}m`);
+      return;
+    }
+
+    toast("Logged.");
+    return;
+  } // end event:
+} // end handleAction
+
 // ----- Boot -----
-
 (async function init(){
-  // SAFETY: never allow a stale lock to brick the app
   document.body.classList.remove("locked");
-
   ensureDay(dayKey());
-try { await registerServiceWorker(); } catch (e) {}
+  try { await registerServiceWorker(); } catch (e) {}
   render();
 })();
 
-
+// FIX 4: No duplicate serviceWorker listener here — removed from this function
 async function handleSnoozeFromNotif(data){
   const d = ensureDay(dayKey());
-
-  // only for block3 start notification
   if(data.kind !== "b3_start") return;
-
-  if(d.scheduled.block3SnoozesUsed >= 2){
-    toast("No snoozes left.");
-    return;
-  }
+  if(d.scheduled.block3SnoozesUsed >= 2){ toast("No snoozes left."); return; }
   d.scheduled.block3SnoozesUsed += 1;
-
   const newAt = Date.now() + 10*60*1000;
   d.scheduled.block3StartAt = newAt;
-
-  // reschedule: cancel existing b3-start + create a new one
   await cancelScheduledByTagPrefix(`b3-start-${dayKey()}`);
-
   await schedulePush(
     `b3-start-${dayKey()}`,
     "Block 3 starting",
-    "Quick check: what’s the one 10-minute win?",
+    "Quick check: what's the one 10-minute win?",
     newAt,
-    {
-      kind:"b3_start",
-      actions: [
-        { action:"snooze", title:"Snooze 10m" }
-      ]
-    }
+    { kind:"b3_start", actions: [{ action:"snooze", title:"Snooze 10m" }] }
   );
-
+  saveState();
   toast("Snoozed 10m.");
 }
