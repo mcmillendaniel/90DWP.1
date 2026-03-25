@@ -816,20 +816,20 @@ async function handleSnoozeFromNotif(data){
 
   function initDrum(drumEl, values, startIndex) {
     drumEl.innerHTML = "";
-    const PAD = 2;
-    for (let i = 0; i < PAD; i++) {
-      const s = document.createElement("div");
-      s.className = "te-drum-item";
-      drumEl.appendChild(s);
-    }
-    drumEl.appendChild(buildDrumItems(values));
-    for (let i = 0; i < PAD; i++) {
-      const s = document.createElement("div");
-      s.className = "te-drum-item";
-      drumEl.appendChild(s);
-    }
+    values.forEach(v => {
+      const el = document.createElement("div");
+      el.className = "te-drum-item";
+      el.textContent = v;
+      drumEl.appendChild(el);
+    });
 
     const ITEM_H = 44;
+    const VISIBLE_ITEMS = 3; // items shown in the 160px window (44*3 = 132, close enough)
+    const PAD_PX = (160 - ITEM_H) / 2; // center the selected item in the 160px column
+
+    drumEl.style.paddingTop    = PAD_PX + "px";
+    drumEl.style.paddingBottom = PAD_PX + "px";
+
     let currentIdx = startIndex;
     let startY = 0, startOffset = 0;
     let offset = startIndex * ITEM_H;
@@ -838,7 +838,7 @@ async function handleSnoozeFromNotif(data){
 
     function applyOffset(o, animate) {
       drumEl.style.transition = animate ? "transform .15s ease" : "none";
-      drumEl.style.transform = `translateY(${-o}px)`;
+      drumEl.style.transform  = `translateY(${-o}px)`;
     }
 
     function snapTo(idx) {
