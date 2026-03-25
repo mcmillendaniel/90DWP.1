@@ -1,8 +1,9 @@
 /* Service Worker: offline + push handling */
+const CACHE_NAME = "90dwp-v5";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open("90dwp-v4").then((cache) => cache.addAll([
+    caches.open(CACHE_NAME).then((cache) => cache.addAll([
       "./",
       "./index.html",
       "./styles.css",
@@ -14,7 +15,13 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(
+        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+      )
+    ).then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener("fetch", (event) => {
@@ -32,13 +39,9 @@ self.addEventListener("push", (event) => {
   const url = data.url || "./index.html";
   const tag = data.tag || "90dwp";
   const actions = data.actions || [];
-
   event.waitUntil(
     self.registration.showNotification(title, {
-      body,
-      tag,
-      data: { url, ...data },
-      actions
+      body, tag, data: { url, ...data }, actions
     })
   );
 });
@@ -56,9 +59,5 @@ self.addEventListener("notificationclick", (event) => {
       }
     }
     const newClient = await clients.openWindow(url);
-    if (newClient) {
-      // best-effort
-    }
   })());
 });
-/* Tue Mar 24 14:43:54 EDT 2026 */
