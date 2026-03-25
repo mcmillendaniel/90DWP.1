@@ -234,3 +234,121 @@ body.locked .header {
   box-shadow: 0 10px 24px rgba(0,0,0,.12);
 }
 .wake-btn:active { transform: scale(.99); }
+
+/* ── Time Edit Modals ─────────────────────────────────────── */
+.te-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0,0,0,.55);
+  align-items: flex-end;
+  justify-content: center;
+}
+.te-overlay.open {
+  display: flex;
+}
+.te-sheet {
+  background: var(--card, #ffffffcc);
+  border-radius: 16px 16px 0 0;
+  padding: 24px 20px 36px;
+  width: 100%;
+  max-width: 420px;
+  animation: teSlideUp .22s ease;
+}
+@keyframes teSlideUp {
+  from { transform: translateY(60px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.te-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 6px;
+  color: var(--text, #0b1b12);
+}
+.te-sub {
+  font-size: .85rem;
+  text-align: center;
+  color: var(--muted, #3b5a49);
+  margin-bottom: 20px;
+}
+.te-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+.te-btn {
+  flex: 1;
+  padding: 13px 0;
+  border: none;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+.te-btn:active { opacity: .7; }
+.te-btn--ghost {
+  background: rgba(0,0,0,.08);
+  color: var(--text, #0b1b12);
+}
+.te-btn--primary {
+  background: var(--green, #2e8b57);
+  color: #fff;
+}
+.te-picker-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  position: relative;
+  height: 160px;
+  overflow: hidden;
+}
+.te-drum-highlight {
+  position: absolute;
+  left: 0; right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 44px;
+  background: rgba(0,0,0,.06);
+  border-radius: 8px;
+  pointer-events: none;
+  border-top: 1px solid rgba(0,0,0,.10);
+  border-bottom: 1px solid rgba(0,0,0,.10);
+}
+.te-drum-col {
+  width: 64px;
+  height: 160px;
+  overflow: hidden;
+  position: relative;
+}
+.te-drum-col--ampm {
+  width: 52px;
+}
+.te-drum {
+  display: flex;
+  flex-direction: column;
+  cursor: grab;
+  will-change: transform;
+  user-select: none;
+}
+.te-drum:active { cursor: grabbing; }
+.te-drum-item {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: var(--text, #0b1b12);
+  flex-shrink: 0;
+}
+.te-drum-sep {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text, #0b1b12);
+  padding-bottom: 4px;
+  flex-shrink: 0;
+}

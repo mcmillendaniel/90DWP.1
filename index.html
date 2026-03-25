@@ -29,6 +29,41 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+  <!-- ── Time Edit Modals ─────────────────────────────────────── -->
+  <div id="editConfirmModal" class="te-overlay" aria-hidden="true">
+    <div class="te-sheet">
+      <div class="te-title">Edit logged time?</div>
+      <div class="te-sub" id="editConfirmSub">Currently: —</div>
+      <div class="te-actions">
+        <button class="te-btn te-btn--ghost" id="editConfirmCancel">Cancel</button>
+        <button class="te-btn te-btn--primary" id="editConfirmYes">Yes, edit</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="editPickerModal" class="te-overlay" aria-hidden="true">
+    <div class="te-sheet">
+      <div class="te-title">Set time</div>
+      <div class="te-picker-wrap">
+        <div class="te-drum-col">
+          <div class="te-drum" id="drumHour"></div>
+        </div>
+        <div class="te-drum-sep">:</div>
+        <div class="te-drum-col">
+          <div class="te-drum" id="drumMin"></div>
+        </div>
+        <div class="te-drum-col te-drum-col--ampm">
+          <div class="te-drum" id="drumAmPm"></div>
+        </div>
+        <div class="te-drum-highlight"></div>
+      </div>
+      <div class="te-actions">
+        <button class="te-btn te-btn--ghost" id="editPickerCancel">Cancel</button>
+        <button class="te-btn te-btn--primary" id="editPickerConfirm">Confirm</button>
+      </div>
+    </div>
+  </div>
+
   <script src="./app.js"></script>
 </body>
 </html>

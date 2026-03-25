@@ -662,6 +662,14 @@ async function handleAction(act){
 
   if(act.startsWith("morning:")){
     const key = act.split(":")[1];
+    if (d.morning[key]) {
+      const newTs = await window.openTimeEditFlow(d.morning[key]);
+      if (newTs !== null) {
+        d.morning[key] = newTs;
+        toast("Time updated.");
+      }
+      return;
+    }
     d.morning[key] = Date.now();
     toast("Logged.");
     return;
@@ -674,10 +682,39 @@ async function handleAction(act){
 
   if(act.startsWith("event:")){
     const ev = act.split(":")[1];
-    if (ev === "imUp" && d.events.imUp) {
-      toast("Already logged I'm up for today.");
+
+    if (d.events[ev]) {
+      const newTs = await window.openTimeEditFlow(d.events[ev]);
+      if (newTs !== null) {
+        d.events[ev] = newTs;
+        if (ev === "babyUp") {
+          const sendAt = newTs + CHECKIN_OFFSET_MIN * 60 * 1000;
+          d.scheduled.block1CheckinAt = sendAt;
+          await schedulePush(`b1-checkin-${dayKey()}`, "Block 1 check-in", "How's it going? What's the next tiny move?", sendAt, { kind: "b1_checkin" });
+        }
+        if (ev === "napStart") {
+          const sendAt = newTs + CHECKIN_OFFSET_MIN * 60 * 1000;
+          d.scheduled.block2CheckinAt = sendAt;
+          await schedulePush(`b2-checkin-${dayKey()}`, "Block 2 check-in", "How's it going? What's the next tiny move?", sendAt, { kind: "b2_checkin" });
+        }
+        if (ev === "napEnd") {
+          const delay = await promptBlock3Delay();
+          if (delay != null) {
+            const startAt = newTs + delay * 60 * 1000;
+            const checkAt = startAt + BLOCK3_CHECKIN_OFFSET_MIN * 60 * 1000;
+            d.scheduled.block3StartAt = startAt;
+            d.scheduled.block3CheckinAt = checkAt;
+            d.scheduled.block3SnoozesUsed = 0;
+            await cancelScheduledByTagPrefix(`b3-`);
+            await schedulePush(`b3-start-${dayKey()}`, "Block 3 starting", "Quick check: what's the one 10-minute win?", startAt, { kind: "b3_start", actions: [{ action: "snooze", title: "Snooze 10m" }] });
+            await schedulePush(`b3-checkin-${dayKey()}`, "Block 3 check-in", "How's it going? Keep it small.", checkAt, { kind: "b3_checkin" });
+          }
+        }
+        toast("Time updated.");
+      }
       return;
     }
+
     const ts = Date.now();
     d.events[ev] = ts;
 
@@ -759,3 +796,176 @@ async function handleSnoozeFromNotif(data){
   saveState();
   toast("Snoozed 10m.");
 }
+
+// ══════════════════════════════════════════════════════════════
+// TIME EDIT FEATURE
+// ══════════════════════════════════════════════════════════════
+
+(function timeEditFeature() {
+
+  function buildDrumItems(values) {
+    const frag = document.createDocumentFragment();
+    values.forEach(v => {
+      const el = document.createElement("div");
+      el.className = "te-drum-item";
+      el.textContent = v;
+      frag.appendChild(el);
+    });
+    return frag;
+  }
+
+  function initDrum(drumEl, values, startIndex) {
+    drumEl.innerHTML = "";
+    const PAD = 2;
+    for (let i = 0; i < PAD; i++) {
+      const s = document.createElement("div");
+      s.className = "te-drum-item";
+      drumEl.appendChild(s);
+    }
+    drumEl.appendChild(buildDrumItems(values));
+    for (let i = 0; i < PAD; i++) {
+      const s = document.createElement("div");
+      s.className = "te-drum-item";
+      drumEl.appendChild(s);
+    }
+
+    const ITEM_H = 44;
+    let currentIdx = startIndex;
+    let startY = 0, startOffset = 0;
+    let offset = startIndex * ITEM_H;
+
+    function clamp(v) { return Math.max(0, Math.min((values.length - 1) * ITEM_H, v)); }
+
+    function applyOffset(o, animate) {
+      drumEl.style.transition = animate ? "transform .15s ease" : "none";
+      drumEl.style.transform = `translateY(${-o}px)`;
+    }
+
+    function snapTo(idx) {
+      currentIdx = Math.round(Math.max(0, Math.min(values.length - 1, idx)));
+      offset = currentIdx * ITEM_H;
+      applyOffset(offset, true);
+    }
+
+    applyOffset(offset, false);
+
+    drumEl.addEventListener("touchstart", e => {
+      startY = e.touches[0].clientY;
+      startOffset = offset;
+      drumEl.style.transition = "none";
+    }, { passive: true });
+
+    drumEl.addEventListener("touchmove", e => {
+      const dy = startY - e.touches[0].clientY;
+      offset = clamp(startOffset + dy);
+      applyOffset(offset, false);
+    }, { passive: true });
+
+    drumEl.addEventListener("touchend", () => {
+      snapTo(Math.round(offset / ITEM_H));
+    });
+
+    drumEl.addEventListener("mousedown", e => {
+      startY = e.clientY;
+      startOffset = offset;
+      drumEl.style.transition = "none";
+      const onMove = ev => {
+        const dy = startY - ev.clientY;
+        offset = clamp(startOffset + dy);
+        applyOffset(offset, false);
+      };
+      const onUp = () => {
+        snapTo(Math.round(offset / ITEM_H));
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    });
+
+    return {
+      getValue: () => values[currentIdx],
+      getIndex: () => currentIdx,
+      snapTo
+    };
+  }
+
+  function openOverlay(id) {
+    const el = document.getElementById(id);
+    el.classList.add("open");
+    el.setAttribute("aria-hidden", "false");
+  }
+  function closeOverlay(id) {
+    const el = document.getElementById(id);
+    el.classList.remove("open");
+    el.setAttribute("aria-hidden", "true");
+  }
+
+  function openTimeEditFlow(existingTs) {
+    return new Promise(resolve => {
+
+      // Step 1: confirm
+      const sub = document.getElementById("editConfirmSub");
+      const existing = new Date(existingTs);
+      sub.textContent = `Currently logged: ${existing.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+      openOverlay("editConfirmModal");
+
+      const onCancel = () => { closeOverlay("editConfirmModal"); cleanup1(); resolve(null); };
+      const onYes    = () => { closeOverlay("editConfirmModal"); cleanup1(); openPicker(); };
+
+      document.getElementById("editConfirmCancel").addEventListener("click", onCancel);
+      document.getElementById("editConfirmYes").addEventListener("click", onYes);
+
+      function cleanup1() {
+        document.getElementById("editConfirmCancel").removeEventListener("click", onCancel);
+        document.getElementById("editConfirmYes").removeEventListener("click", onYes);
+      }
+
+      // Step 2: picker
+      function openPicker() {
+        const HOURS   = ["1","2","3","4","5","6","7","8","9","10","11","12"];
+        const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
+        const AMPM    = ["AM","PM"];
+
+        let h = existing.getHours();
+        const ampmIdx = h >= 12 ? 1 : 0;
+        h = h % 12 || 12;
+        const hourIdx = HOURS.indexOf(String(h));
+        const minIdx  = existing.getMinutes();
+
+        const dHour = initDrum(document.getElementById("drumHour"),  HOURS,   hourIdx < 0 ? 0 : hourIdx);
+        const dMin  = initDrum(document.getElementById("drumMin"),   MINUTES, minIdx);
+        const dAmPm = initDrum(document.getElementById("drumAmPm"),  AMPM,    ampmIdx);
+
+        openOverlay("editPickerModal");
+
+        const onPickerCancel  = () => { closeOverlay("editPickerModal"); cleanup2(); resolve(null); };
+        const onPickerConfirm = () => {
+          closeOverlay("editPickerModal");
+          cleanup2();
+
+          let hours24 = parseInt(dHour.getValue(), 10);
+          const mins  = parseInt(dMin.getValue(),  10);
+          const ap    = dAmPm.getValue();
+          if (ap === "AM" && hours24 === 12) hours24 = 0;
+          if (ap === "PM" && hours24 !== 12) hours24 += 12;
+
+          const base = new Date(existingTs);
+          base.setHours(hours24, mins, 0, 0);
+          resolve(base.getTime());
+        };
+
+        document.getElementById("editPickerCancel").addEventListener("click", onPickerCancel);
+        document.getElementById("editPickerConfirm").addEventListener("click", onPickerConfirm);
+
+        function cleanup2() {
+          document.getElementById("editPickerCancel").removeEventListener("click", onPickerCancel);
+          document.getElementById("editPickerConfirm").removeEventListener("click", onPickerConfirm);
+        }
+      }
+    });
+  }
+
+  window.openTimeEditFlow = openTimeEditFlow;
+
+})();
