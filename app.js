@@ -856,10 +856,11 @@ async function handleSnoozeFromNotif(data){
     }, { passive: true });
 
     drumEl.addEventListener("touchmove", e => {
+      e.preventDefault();
       const dy = startY - e.touches[0].clientY;
       offset = clamp(startOffset + dy);
       applyOffset(offset, false);
-    }, { passive: true });
+    }, { passive: false });
 
     drumEl.addEventListener("touchend", () => {
       snapTo(Math.round(offset / ITEM_H));
