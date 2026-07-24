@@ -331,6 +331,9 @@ async function syncPushState(){
     if(reg){
       const sub = await reg.pushManager.getSubscription();
       live = !!sub && Notification.permission === "granted";
+      // Which push service this device is bound to (Apple vs Google) is worth
+      // seeing — it confirms a real subscription exists right now, client-side.
+      if(sub){ try { lastSubEndpoint = new URL(sub.endpoint).host; } catch {} }
     }
   } catch(e){
     console.error("[push] state sync failed:", e);
@@ -344,6 +347,22 @@ async function syncPushState(){
 }
 
 // ----- Diagnostics -----
+
+// A toast disappears in 1.6s, which is not long enough to read an HTTP error on
+// a phone, and iOS has no reachable console. Persist the last result so it can
+// be read in Settings at leisure and survive a reload.
+let lastPushResult = null;
+let lastSubEndpoint = null;
+
+function setPushResult(ok, message){
+  lastPushResult = { ok, message: String(message), at: Date.now() };
+  try { localStorage.setItem("90dwp_last_push_result", JSON.stringify(lastPushResult)); } catch {}
+}
+
+function getPushResult(){
+  if(lastPushResult) return lastPushResult;
+  try { return JSON.parse(localStorage.getItem("90dwp_last_push_result") || "null"); } catch { return null; }
+}
 
 // Bypasses the Worker entirely. Proves permission + service worker + OS-level
 // display are all working, which isolates client problems from server ones.
@@ -378,9 +397,12 @@ async function testPushRoundTrip(){
       url: location.origin + location.pathname
     });
     console.log("[push] test scheduled, worker said:", res || "(empty body)");
+    // A 200 with a strange body still tells us something, so keep the reply.
+    setPushResult(true, `HTTP 2xx accepted. Worker replied: ${res ? res.slice(0,200) : "(empty body)"}`);
     toast("Worker accepted ✅ — expect it in ~15s");
   } catch(e){
     console.error("[push] test round trip failed:", e);
+    setPushResult(false, e.message);
     toast(e.message);
   }
 }
@@ -583,8 +605,16 @@ function renderSettings(){
     ["Installed to Home Screen", yn(env.isStandalone)],
     ["Notification permission", env.permission],
     ["Push API available", yn(env.hasPush)],
-    ["Service worker support", yn(env.hasSW)]
+    ["Service worker support", yn(env.hasSW)],
+    ["Push endpoint", lastSubEndpoint || "none"]
   ];
+  const result = getPushResult();
+  const resultBlock = result
+    ? `<div class="diag-result ${result.ok ? "diag-result--ok" : "diag-result--bad"}">
+         <div class="item-title">Last test: ${result.ok ? "accepted" : "failed"} @ ${fmtTime(result.at)}</div>
+         <div class="diag-result-msg">${escapeHtml(result.message)}</div>
+       </div>`
+    : "";
   const iosWarning = (env.isIOS && !env.isStandalone)
     ? `<div class="small" style="margin-top:10px;color:var(--red);font-weight:700">
          iOS requires this app to be added to the Home Screen and opened from
@@ -646,6 +676,7 @@ function renderSettings(){
           </div>
         `).join("")}
       </div>
+      ${resultBlock}
       ${iosWarning}
     </section>
   `;
