@@ -1,7 +1,6 @@
 /* 90DWP - MVP PWA (local storage + web push registration + scheduling via Worker) - Reset at 4:00am local - Tabs: home, checkoffs, morning, history, settings */
 const WORKER_BASE_URL = "https://90dwp-push.mcmillendaniel.workers.dev";
 const RESET_HOUR = 4; // 4:00am daily reset
-const HARD_CUTOFF_HOUR = 17; // 5:00pm cutoff for work pushes
 const CHECKIN_OFFSET_MIN = 1; // block 1/2 check-in offset
 const BLOCK3_CHECKIN_OFFSET_MIN = 1; // block3 check-in after start
 
@@ -132,10 +131,24 @@ function fmtTime(ts){
   return d.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"});
 }
 
+const DEFAULT_SETTINGS = { pushEnabled: false };
+
+// Guarantees deviceId/days/settings always exist, so nothing downstream can
+// crash on a partial or hand-edited state blob.
+function normalizeState(raw){
+  const base = (raw && typeof raw === "object") ? raw : {};
+  return {
+    deviceId: base.deviceId || safeUUID(),
+    days: (base.days && typeof base.days === "object") ? base.days : {},
+    settings: Object.assign({}, DEFAULT_SETTINGS, base.settings || {})
+  };
+}
+
 function loadState(){
   const raw = localStorage.getItem("90dwp_state_v1");
-  if(raw){ try { return JSON.parse(raw); } catch {} }
-  return { deviceId: safeUUID(), days: {}, settings: { pushEnabled: false } };
+  let parsed = null;
+  if(raw){ try { parsed = JSON.parse(raw); } catch {} }
+  return normalizeState(parsed);
 }
 
 function saveState(){
@@ -171,136 +184,241 @@ if ("serviceWorker" in navigator) {
 }
 
 // ----- Push Registration -----
+
+// Snapshot of everything that has to be true for web push to work at all.
+// Surfaced in Settings so a failure is visible instead of guessed at.
+function pushEnvironment(){
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const isStandalone = window.matchMedia("(display-mode: standalone)").matches
+    || window.navigator.standalone === true;
+  return {
+    isIOS,
+    isStandalone,
+    hasSW: "serviceWorker" in navigator,
+    hasPush: "PushManager" in window,
+    hasNotification: "Notification" in window,
+    permission: ("Notification" in window) ? Notification.permission : "unsupported"
+  };
+}
+
 async function registerServiceWorker(){
-  if(!("serviceWorker" in navigator)) return false;
-  const reg = await navigator.serviceWorker.register("./sw.js");
-  return reg;
+  if(!("serviceWorker" in navigator)) return null;
+  return navigator.serviceWorker.register("./sw.js");
 }
 
-async function requestPushPermission(){
-  if(!("Notification" in window)) return false;
-  const perm = await Notification.requestPermission();
-  return perm === "granted";
-}
-
-async function getPushSubscription(reg){
-  const sub = await reg.pushManager.getSubscription();
-  return sub;
+// Single place every Worker call goes through, so a non-2xx response can never
+// pass silently again. Throws with the status and body so the caller can toast it.
+async function postToWorker(path, body){
+  let r;
+  try {
+    r = await fetch(`${WORKER_BASE_URL}${path}`, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(body)
+    });
+  } catch(e){
+    throw new Error(`${path} unreachable — ${e.message}`);
+  }
+  const text = await r.text().catch(()=> "");
+  if(!r.ok) throw new Error(`${path} → HTTP ${r.status}${text ? ` ${text.slice(0,120)}` : ""}`);
+  return text;
 }
 
 async function subscribeToPush(reg){
-  if(!WORKER_BASE_URL){ toast("Add Worker URL in app.js first."); return null; }
   const r = await fetch(`${WORKER_BASE_URL}/vapidPublicKey`);
+  if(!r.ok) throw new Error(`/vapidPublicKey → HTTP ${r.status}`);
   const { publicKey } = await r.json();
+  if(!publicKey) throw new Error("Worker returned no publicKey");
   const appServerKey = urlBase64ToUint8Array(publicKey);
+  // Drop any subscription bound to a previous VAPID key — those are dead on
+  // arrival at the push service and can never be revived.
   const existing = await reg.pushManager.getSubscription();
-  if (existing) { try { await existing.unsubscribe(); } catch {} }
-  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appServerKey });
-  return sub;
-}
-
-async function sendSubscriptionToWorker(sub){
-  const payload = { deviceId: state.deviceId, subscription: sub };
-  const r = await fetch(`${WORKER_BASE_URL}/subscribe`, {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify(payload)
-  });
-  if(!r.ok) throw new Error("Subscribe failed");
+  if(existing){ try { await existing.unsubscribe(); } catch {} }
+  return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appServerKey });
 }
 
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
   const rawData = atob(base64);
-  let outputArray = new Uint8Array(rawData.length);
+  const outputArray = new Uint8Array(rawData.length);
   for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
-  // P-256 uncompressed public keys must be 65 bytes starting with 0x04
-  // If key is 64 bytes, prepend the missing 0x04 uncompressed point prefix
-  if (outputArray.length === 64) {
-    const fixed = new Uint8Array(65);
-    fixed[0] = 0x04;
-    fixed.set(outputArray, 1);
-    outputArray = fixed;
-  }
   return outputArray;
 }
 
 async function enablePushFlow(){
-  if(!WORKER_BASE_URL){ toast("Worker URL not set."); return; }
+  const env = pushEnvironment();
+
+  if(env.isIOS && !env.isStandalone){
+    toast("iOS: Share → Add to Home Screen, then open from the icon.");
+    return;
+  }
+  if(!env.hasSW || !env.hasPush || !env.hasNotification){
+    toast("This browser can't do web push here.");
+    return;
+  }
+
+  // Must be called synchronously inside the click handler. WebKit only honors
+  // requestPermission() while the user gesture is still active, so awaiting
+  // anything before this line (SW registration, a fetch) silently kills it.
+  const permissionPromise = Notification.requestPermission();
+
+  try {
+    const perm = await permissionPromise;
+    console.log("[push] permission:", perm);
+    if(perm !== "granted"){ toast(`Notification permission: ${perm}.`); return; }
+  } catch(e){
+    console.error("[push] permission failed:", e);
+    toast("Permission request failed — " + e.message); return;
+  }
+
   let reg, sub;
   try {
     reg = await registerServiceWorker();
-    console.log("[push] Step 1 SW reg OK:", reg);
-  } catch(e) {
-    console.error("[push] Step 1 SW reg failed:", e);
-    toast("Push failed: SW reg — " + e.message); return;
+    await navigator.serviceWorker.ready;
+    console.log("[push] SW ready:", reg);
+  } catch(e){
+    console.error("[push] SW registration failed:", e);
+    toast("Service worker failed — " + e.message); return;
   }
-  try {
-    const ok = await requestPushPermission();
-    console.log("[push] Step 2 permission:", ok);
-    if(!ok){ toast("Push permission not granted."); return; }
-  } catch(e) {
-    console.error("[push] Step 2 permission failed:", e);
-    toast("Push failed: permission — " + e.message); return;
-  }
+
   try {
     sub = await subscribeToPush(reg);
-    console.log("[push] Step 3 subscribe OK:", sub);
-  } catch(e) {
-    console.error("[push] Step 3 subscribe failed:", e);
-    toast("Push failed: subscribe — " + e.message); return;
+    console.log("[push] subscribed:", sub && sub.endpoint);
+  } catch(e){
+    console.error("[push] subscribe failed:", e);
+    toast("Subscribe failed — " + e.message); return;
   }
+
   try {
-    await sendSubscriptionToWorker(sub);
-    console.log("[push] Step 4 sent to worker OK");
-  } catch(e) {
-    console.error("[push] Step 4 send to worker failed:", e);
-    toast("Push failed: worker — " + e.message); return;
+    await postToWorker("/subscribe", { deviceId: state.deviceId, subscription: sub });
+    console.log("[push] subscription stored on worker");
+  } catch(e){
+    console.error("[push] worker /subscribe failed:", e);
+    toast("Worker rejected subscription — " + e.message); return;
   }
+
   state.settings.pushEnabled = true;
   saveState();
   toast("Push enabled ✅");
 }
 
 async function disablePushFlow(){
-  const reg = await navigator.serviceWorker.getRegistration();
-  if(reg){
-    const sub = await reg.pushManager.getSubscription();
-    if(sub) await sub.unsubscribe();
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    if(reg){
+      const sub = await reg.pushManager.getSubscription();
+      if(sub) await sub.unsubscribe();
+    }
+  } catch(e){
+    console.error("[push] unsubscribe failed:", e);
   }
   state.settings.pushEnabled = false;
   saveState();
   toast("Push disabled");
 }
 
-// ----- Scheduling helpers -----
-function isAfterCutoff(dateObj){ return dateObj.getHours() >= HARD_CUTOFF_HOUR; }
+// pushEnabled lives in localStorage, which iOS can clear out from under us.
+// The browser's own subscription is the real source of truth, so reconcile
+// against it on boot rather than trusting a stale flag.
+async function syncPushState(){
+  const env = pushEnvironment();
+  if(!env.hasSW || !env.hasPush || !env.hasNotification) return;
+  let live = false;
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    if(reg){
+      const sub = await reg.pushManager.getSubscription();
+      live = !!sub && Notification.permission === "granted";
+    }
+  } catch(e){
+    console.error("[push] state sync failed:", e);
+    return;
+  }
+  if(state.settings.pushEnabled !== live){
+    console.warn(`[push] correcting pushEnabled: ${state.settings.pushEnabled} → ${live}`);
+    state.settings.pushEnabled = live;
+    saveState();
+  }
+}
 
+// ----- Diagnostics -----
+
+// Bypasses the Worker entirely. Proves permission + service worker + OS-level
+// display are all working, which isolates client problems from server ones.
+async function testLocalNotification(){
+  const env = pushEnvironment();
+  if(env.isIOS && !env.isStandalone){ toast("iOS: open from the Home Screen icon."); return; }
+  if(!env.hasNotification){ toast("Notifications unsupported here."); return; }
+  if(Notification.permission !== "granted"){ toast(`Permission is "${Notification.permission}" — tap Enable.`); return; }
+  const reg = await navigator.serviceWorker.getRegistration();
+  if(!reg){ toast("No service worker registered."); return; }
+  await reg.showNotification("90DWP test", {
+    body: "Local notification. Display works.",
+    tag: "90dwp-test-local",
+    icon: "./icons/icon-192.png",
+    badge: "./icons/icon-192.png"
+  });
+  toast("Local notification fired.");
+}
+
+// Deliberately ignores the pushEnabled gate so it always hits the network and
+// reports the real status code — that is the whole point of the button.
+async function testPushRoundTrip(){
+  const sendAt = Date.now() + 15000;
+  toast("Contacting worker…");
+  try {
+    const res = await postToWorker("/schedule", {
+      deviceId: state.deviceId,
+      tag: `test-${Date.now()}`,
+      title: "90DWP test push",
+      body: "Round trip works.",
+      sendAt,
+      url: location.origin + location.pathname
+    });
+    console.log("[push] test scheduled, worker said:", res || "(empty body)");
+    toast("Worker accepted ✅ — expect it in ~15s");
+  } catch(e){
+    console.error("[push] test round trip failed:", e);
+    toast(e.message);
+  }
+}
+
+// ----- Scheduling helpers -----
+// Returns true/false rather than throwing, so a scheduling failure surfaces as
+// a specific toast instead of being swallowed by the generic handler in
+// wireActions(). Never fails silently.
 async function schedulePush(tag, title, body, sendAtMs, extra = {}){
-  if(!state.settings.pushEnabled) return;
-  if(!WORKER_BASE_URL) return;
-  const when = new Date(sendAtMs);
-  if(isAfterCutoff(when)) return;
+  if(!state.settings.pushEnabled){
+    console.warn("[push] not scheduled, push disabled:", tag);
+    toast("Push is off — enable it in Settings.");
+    return false;
+  }
   const payload = Object.assign({
     deviceId: state.deviceId, tag, title, body,
     sendAt: sendAtMs, url: location.origin + location.pathname
   }, (extra && typeof extra === "object") ? extra : {});
-  await fetch(`${WORKER_BASE_URL}/schedule`, {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify(payload)
-  });
+  try {
+    await postToWorker("/schedule", payload);
+    console.log(`[push] scheduled ${tag} for ${new Date(sendAtMs).toLocaleTimeString()}`);
+    return true;
+  } catch(e){
+    console.error("[push] schedule failed:", tag, e);
+    toast("Schedule failed — " + e.message);
+    return false;
+  }
 }
 
 async function cancelScheduledByTagPrefix(prefix){
-  if(!state.settings.pushEnabled) return;
-  if(!WORKER_BASE_URL) return;
-  await fetch(`${WORKER_BASE_URL}/cancelPrefix`, {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ deviceId: state.deviceId, prefix })
-  });
+  if(!state.settings.pushEnabled) return false;
+  try {
+    await postToWorker("/cancelPrefix", { deviceId: state.deviceId, prefix });
+    return true;
+  } catch(e){
+    console.error("[push] cancel failed:", prefix, e);
+    return false;
+  }
 }
 
 // ----- UI rendering -----
@@ -459,6 +577,20 @@ function renderHistory(){
 }
 
 function renderSettings(){
+  const env = pushEnvironment();
+  const yn = (v) => v ? "yes" : "no";
+  const diagnostics = [
+    ["Installed to Home Screen", yn(env.isStandalone)],
+    ["Notification permission", env.permission],
+    ["Push API available", yn(env.hasPush)],
+    ["Service worker support", yn(env.hasSW)]
+  ];
+  const iosWarning = (env.isIOS && !env.isStandalone)
+    ? `<div class="small" style="margin-top:10px;color:var(--red);font-weight:700">
+         iOS requires this app to be added to the Home Screen and opened from
+         that icon. Push cannot work in a Safari tab.
+       </div>`
+    : "";
   return `
     <section class="card">
       <h2 class="h2">Settings</h2>
@@ -487,8 +619,34 @@ function renderSettings(){
         <button class="btn" style="flex:0 0 auto" data-action="import">Import</button>
       </div>
       <div class="small" style="margin-top:10px">
-        Device ID: <b>${state.deviceId}</b>
+        Device ID: <b>${escapeHtml(state.deviceId)}</b>
       </div>
+    </section>
+    <section class="card">
+      <h2 class="h2">Notification diagnostics</h2>
+      <div class="item">
+        <div class="item-left">
+          <div class="item-title">Test local notification</div>
+          <div class="item-sub">Skips the server. Checks permission + display.</div>
+        </div>
+        <button class="btn" style="flex:0 0 auto" data-action="test:local">Run</button>
+      </div>
+      <div class="item">
+        <div class="item-left">
+          <div class="item-title">Test push round trip</div>
+          <div class="item-sub">Asks the worker to send one in ~15s.</div>
+        </div>
+        <button class="btn" style="flex:0 0 auto" data-action="test:push">Run</button>
+      </div>
+      <div class="list" style="margin-top:10px">
+        ${diagnostics.map(([label, value])=>`
+          <div class="item">
+            <div class="item-left"><div class="item-title">${label}</div></div>
+            <div class="pill">${escapeHtml(value)}</div>
+          </div>
+        `).join("")}
+      </div>
+      ${iosWarning}
     </section>
   `;
 }
@@ -619,7 +777,7 @@ async function importData(){
       try{
         const parsed = JSON.parse(reader.result);
         const currentDeviceId = state.deviceId;
-        state = parsed;
+        state = normalizeState(parsed);
         state.deviceId = currentDeviceId;
         saveState();
         toast("Imported ✅");
@@ -677,6 +835,8 @@ async function handleAction(act){
 
   if(act === "push:enable"){ await enablePushFlow(); return; }
   if(act === "push:disable"){ await disablePushFlow(); return; }
+  if(act === "test:local"){ await testLocalNotification(); return; }
+  if(act === "test:push"){ await testPushRoundTrip(); return; }
   if(act === "export"){ exportData(); return; }
   if(act === "import"){ await importData(); return; }
 
@@ -773,7 +933,9 @@ async function handleAction(act){
 (async function init(){
   document.body.classList.remove("locked");
   ensureDay(dayKey());
-  try { await registerServiceWorker(); } catch (e) {}
+  render();
+  try { await registerServiceWorker(); } catch(e){ console.error("[sw] registration failed:", e); }
+  try { await syncPushState(); } catch(e){ console.error("[push] sync failed:", e); }
   render();
 })();
 

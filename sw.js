@@ -1,5 +1,5 @@
 /* Service Worker: offline + push handling */
-const CACHE_NAME = "90dwp-v5";
+const CACHE_NAME = "90dwp-v6";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -41,7 +41,9 @@ self.addEventListener("push", (event) => {
   const actions = data.actions || [];
   event.waitUntil(
     self.registration.showNotification(title, {
-      body, tag, data: { url, ...data }, actions
+      body, tag, data: { url, ...data }, actions,
+      icon: "./icons/icon-192.png",
+      badge: "./icons/icon-192.png"
     })
   );
 });
@@ -51,13 +53,16 @@ self.addEventListener("notificationclick", (event) => {
   const url = (event.notification.data && event.notification.data.url) || "./index.html";
   event.waitUntil((async () => {
     const allClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
+    // Match on scope, not on "index.html" — the PWA launches at the directory
+    // root, so the old check never matched and opened a duplicate window.
+    const scope = self.registration.scope;
     for (const c of allClients) {
-      if (c.url.includes("index.html")) {
-        c.focus();
+      if (c.url.startsWith(scope)) {
+        await c.focus();
         c.postMessage({ type: "NOTIF_ACTION", action: event.action || "open", data: event.notification.data || {} });
         return;
       }
     }
-    const newClient = await clients.openWindow(url);
+    await clients.openWindow(url);
   })());
 });
