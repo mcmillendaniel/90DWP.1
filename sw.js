@@ -1,5 +1,5 @@
 /* Service Worker: offline + push handling */
-const CACHE_NAME = "90dwp-v8";
+const CACHE_NAME = "90dwp-v9";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
