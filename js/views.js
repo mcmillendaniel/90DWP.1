@@ -183,7 +183,7 @@ export function renderSettings(){
       <div class="item">
         <div class="item-left">
           <div class="item-title">Test push round trip</div>
-          <div class="item-sub">Asks the worker to send one in ~15s.</div>
+          <div class="item-sub">Sends via the worker. Arrives within ~2 min.</div>
         </div>
         <button class="btn" style="flex:0 0 auto" data-action="test:push">Run</button>
       </div>

@@ -229,7 +229,8 @@ export async function testLocalNotification(){
 // Deliberately ignores the pushEnabled gate so it always hits the network and
 // reports the real status code — that is the whole point of the button.
 export async function testPushRoundTrip(){
-  const sendAt = Date.now() + 15000;
+  // Due immediately; the cron picks it up on its next tick.
+  const sendAt = Date.now() + 1000;
   toast("Contacting worker…");
   try {
     const res = await postToWorker("/schedule", {
@@ -243,7 +244,7 @@ export async function testPushRoundTrip(){
     console.log("[push] test scheduled, worker said:", res || "(empty body)");
     // A 200 with a strange body still tells us something, so keep the reply.
     setPushResult(true, `HTTP 2xx accepted. Worker replied: ${res ? res.slice(0, 200) : "(empty body)"}`);
-    toast("Worker accepted ✅ — expect it in ~15s");
+    toast("Worker accepted ✅ — arrives within ~2 min");
   } catch(e){
     console.error("[push] test round trip failed:", e);
     setPushResult(false, e.message);
