@@ -1,0 +1,15 @@
+{
+  "name": "90dwp-push",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "dependencies": {
+    "@pushforge/builder": "^0.2.0"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}

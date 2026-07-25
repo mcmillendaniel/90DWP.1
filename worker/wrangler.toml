@@ -1,0 +1,18 @@
+name = "90dwp-push"
+main = "src/index.ts"
+compatibility_date = "2026-07-24"
+
+# Replace <ID> with the PUSH_KV_PROD namespace id from
+# Cloudflare dashboard -> Storage & Databases -> KV
+kv_namespaces = [
+  { binding = "PUSH_KV", id = "<ID>" }
+]
+
+[triggers]
+crons = ["* * * * *"]
+
+# Secrets are NOT set here. Set them with `wrangler secret put`, or in
+# dashboard -> Settings -> Variables and Secrets:
+#   VAPID_PUBLIC_KEY   (unchanged, 87-char base64url)
+#   VAPID_PRIVATE_JWK  (new: full JWK JSON, from vapid-to-jwk.mjs)
+#   VAPID_SUBJECT      (mailto:you@example.com)
