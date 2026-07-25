@@ -29,16 +29,30 @@ Separately, the call read `req.url` / `req.method`, but the library returns
 | `VAPID_PRIVATE_JWK` | **New.** Full private JWK as JSON. |
 | `VAPID_SUBJECT` | `mailto:you@example.com` — must be `mailto:` or `https:`. |
 
-`VAPID_PRIVATE_JWK` replaces `VAPID_PRIVATE_KEY`. Generate it from the keys you
-already have — do **not** mint a new keypair, or every existing subscription
-becomes permanently invalid:
+`VAPID_PRIVATE_JWK` replaces `VAPID_PRIVATE_KEY`, which the worker no longer
+reads.
+
+Cloudflare secrets are write-only — an existing private key cannot be read
+back, only replaced. So unless the original keypair was saved somewhere,
+generate a fresh one:
+
+```bash
+node generate-vapid.mjs
+```
+
+Run it locally and paste the values straight into Cloudflare. The private key
+should never pass through a chat, an email, or a commit.
+
+If you *do* still have the original raw keypair, `vapid-to-jwk.mjs` converts it
+instead, preserving existing subscriptions:
 
 ```bash
 node vapid-to-jwk.mjs "<VAPID_PUBLIC_KEY>" "<VAPID_PRIVATE_KEY>"
 ```
 
-It verifies the two keys actually correspond before printing anything, so a
-mismatched pair is caught here rather than as a silent 403 from Apple.
+Either way, changing the public key invalidates existing subscriptions. Devices
+re-subscribe via Settings -> Disable -> Enable, and stale `sub:` entries left in
+KV should be deleted by hand.
 
 ## Deploy
 
