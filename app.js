@@ -1,8 +1,6 @@
 /* 90DWP - MVP PWA (local storage + web push registration + scheduling via Worker) - Reset at 4:00am local - Tabs: home, checkoffs, morning, history, settings */
 const WORKER_BASE_URL = "https://90dwp-push.mcmillendaniel.workers.dev";
 const RESET_HOUR = 4; // 4:00am daily reset
-const CHECKIN_OFFSET_MIN = 1; // block 1/2 check-in offset
-const BLOCK3_CHECKIN_OFFSET_MIN = 1; // block3 check-in after start
 
 const $ = (id) => document.getElementById(id);
 
@@ -162,8 +160,7 @@ function ensureDay(k){
       outcomes: ["","",""],
       outcomesDone: [false,false,false],
       events: { imUp: null, babyUp: null, napStart: null, napEnd: null },
-      morning: { movement: null, shower: null, outcomesWritten: null, meds: null },
-      scheduled: { block1CheckinAt: null, block2CheckinAt: null, block3StartAt: null, block3CheckinAt: null, block3SnoozesUsed: 0 }
+      morning: { movement: null, shower: null, outcomesWritten: null, meds: null }
     };
   }
   return state.days[k];
@@ -173,15 +170,6 @@ let state = loadState();
 saveState();
 let currentTab = "home";
 
-// FIX 4: Single service worker listener at top level only
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.addEventListener("message", (event) => {
-    if (event.data?.type !== "NOTIF_ACTION") return;
-    if (event.data.action === "snooze" && event.data.data?.kind === "b3_start") {
-      handleSnoozeFromNotif(event.data.data);
-    }
-  });
-}
 
 // ----- Push Registration -----
 
@@ -432,17 +420,6 @@ async function schedulePush(tag, title, body, sendAtMs, extra = {}){
   }
 }
 
-async function cancelScheduledByTagPrefix(prefix){
-  if(!state.settings.pushEnabled) return false;
-  try {
-    await postToWorker("/cancelPrefix", { deviceId: state.deviceId, prefix });
-    return true;
-  } catch(e){
-    console.error("[push] cancel failed:", prefix, e);
-    return false;
-  }
-}
-
 // ----- UI rendering -----
 function setActiveTab(tab){
   currentTab = tab;
@@ -478,7 +455,7 @@ function renderHome(){
   return `
     <section class="card">
       <h2 class="h2">Today</h2>
-      <div class="small">Day resets at 4:00am • Work pushes stop after 5:00pm</div>
+      <div class="small">Day resets at 4:00am</div>
     </section>
     <section class="card">
       <h2 class="h2">Events</h2>
@@ -494,15 +471,7 @@ function renderHome(){
         Nap start: <b>${fmtTime(d.events.napStart)}</b> •
         Nap end: <b>${fmtTime(d.events.napEnd)}</b>
       </div>
-    </section>
-    <section class="card">
-      <h2 class="h2">Block reminders</h2>
-      <div class="small">
-        Block 1 check-in: <b>${fmtTime(d.scheduled.block1CheckinAt)}</b><br/>
-        Block 2 check-in: <b>${fmtTime(d.scheduled.block2CheckinAt)}</b><br/>
-        Block 3 start: <b>${fmtTime(d.scheduled.block3StartAt)}</b><br/>
-        Block 3 check-in: <b>${fmtTime(d.scheduled.block3CheckinAt)}</b>
-      </div>
+      <div class="small" style="margin-top:8px">Tap a logged event again to edit its time.</div>
     </section>
   `;
 }
@@ -559,7 +528,7 @@ function renderMorning(){
   return `
     <section class="card">
       <h2 class="h2">Morning Stack</h2>
-      <div class="small">Buttons log a timestamp. One reminder only: use this tab for checkoffs.</div>
+      <div class="small">Buttons log a timestamp. Tap a logged item again to edit its time.</div>
       <div class="list" style="margin-top:10px">
         ${entries.map(([key,label,ts])=>`
           <div class="item">
@@ -744,17 +713,6 @@ function escapeHtml(s){
     .replaceAll("'","&#039;");
 }
 
-// ----- Modal-less prompt -----
-function promptBlock3Delay(){
-  return new Promise((resolve)=>{
-    const choice = window.prompt("Block 3 delay after Nap End? Type 30, 40, or 45:", "40");
-    if(choice == null) return resolve(null);
-    const v = Number(choice);
-    if([30,40,45].includes(v)) return resolve(v);
-    resolve(40);
-  });
-}
-
 // ----- Export/Import -----
 function exportData(){
   const json = JSON.stringify(state, null, 2);
@@ -874,42 +832,19 @@ async function handleAction(act){
   if(act.startsWith("event:")){
     const ev = act.split(":")[1];
 
-    if (d.events[ev]) {
+    // Tapping an already-logged event opens the time picker instead of
+    // overwriting the timestamp.
+    if(d.events[ev]){
       const newTs = await window.openTimeEditFlow(d.events[ev]);
-      if (newTs !== null) {
+      if(newTs !== null){
         d.events[ev] = newTs;
-        if (ev === "babyUp") {
-          const sendAt = newTs + CHECKIN_OFFSET_MIN * 60 * 1000;
-          d.scheduled.block1CheckinAt = sendAt;
-          await schedulePush(`b1-checkin-${dayKey()}`, "Block 1 check-in", "How's it going? What's the next tiny move?", sendAt, { kind: "b1_checkin" });
-        }
-        if (ev === "napStart") {
-          const sendAt = newTs + CHECKIN_OFFSET_MIN * 60 * 1000;
-          d.scheduled.block2CheckinAt = sendAt;
-          await schedulePush(`b2-checkin-${dayKey()}`, "Block 2 check-in", "How's it going? What's the next tiny move?", sendAt, { kind: "b2_checkin" });
-        }
-        if (ev === "napEnd") {
-          const delay = await promptBlock3Delay();
-          if (delay != null) {
-            const startAt = newTs + delay * 60 * 1000;
-            const checkAt = startAt + BLOCK3_CHECKIN_OFFSET_MIN * 60 * 1000;
-            d.scheduled.block3StartAt = startAt;
-            d.scheduled.block3CheckinAt = checkAt;
-            d.scheduled.block3SnoozesUsed = 0;
-            await cancelScheduledByTagPrefix(`b3-`);
-            await schedulePush(`b3-start-${dayKey()}`, "Block 3 starting", "Quick check: what's the one 10-minute win?", startAt, { kind: "b3_start", actions: [{ action: "snooze", title: "Snooze 10m" }] });
-            await schedulePush(`b3-checkin-${dayKey()}`, "Block 3 check-in", "How's it going? Keep it small.", checkAt, { kind: "b3_checkin" });
-          }
-        }
         toast("Time updated.");
       }
       return;
     }
 
-    const ts = Date.now();
-    d.events[ev] = ts;
+    d.events[ev] = Date.now();
 
-    // FIX 2: imUp wake modal — message/subtext now properly sourced
     if(ev === "imUp"){
       const { message, subtext } = pickWakeMessage();
       openWakeModal({
@@ -923,42 +858,10 @@ async function handleAction(act){
       return;
     }
 
-    // FIX 2: babyUp/napStart/napEnd now inside event: block where ev is defined
-    if(ev === "babyUp"){
-      const sendAt = ts + CHECKIN_OFFSET_MIN*60*1000;
-      d.scheduled.block1CheckinAt = sendAt;
-      await schedulePush(`b1-checkin-${dayKey()}`, "Block 1 check-in", "How's it going? What's the next tiny move?", sendAt, { kind:"b1_checkin" });
-      toast("Baby up logged.");
-      return;
-    }
-
-    if(ev === "napStart"){
-      const sendAt = ts + CHECKIN_OFFSET_MIN*60*1000;
-      d.scheduled.block2CheckinAt = sendAt;
-      await schedulePush(`b2-checkin-${dayKey()}`, "Block 2 check-in", "How's it going? What's the next tiny move?", sendAt, { kind:"b2_checkin" });
-      toast("Nap start logged.");
-      return;
-    }
-
-    if(ev === "napEnd"){
-      const delay = await promptBlock3Delay();
-      if(delay == null){ toast("Canceled."); return; }
-      const startAt = ts + delay*60*1000;
-      const checkAt = startAt + BLOCK3_CHECKIN_OFFSET_MIN*60*1000;
-      d.scheduled.block3StartAt = startAt;
-      d.scheduled.block3CheckinAt = checkAt;
-      d.scheduled.block3SnoozesUsed = 0;
-      await cancelScheduledByTagPrefix(`b3-`);
-      await schedulePush(`b3-start-${dayKey()}`, "Block 3 starting", "Quick check: what's the one 10-minute win?", startAt, { kind:"b3_start", actions: [{ action:"snooze", title:"Snooze 10m" }] });
-      await schedulePush(`b3-checkin-${dayKey()}`, "Block 3 check-in", "How's it going? Keep it small.", checkAt, { kind:"b3_checkin" });
-      toast(`Block 3 set for +${delay}m`);
-      return;
-    }
-
     toast("Logged.");
     return;
-  } // end event:
-} // end handleAction
+  }
+}
 
 // ----- Boot -----
 (async function init(){
@@ -969,26 +872,6 @@ async function handleAction(act){
   try { await syncPushState(); } catch(e){ console.error("[push] sync failed:", e); }
   render();
 })();
-
-// FIX 4: No duplicate serviceWorker listener here — removed from this function
-async function handleSnoozeFromNotif(data){
-  const d = ensureDay(dayKey());
-  if(data.kind !== "b3_start") return;
-  if(d.scheduled.block3SnoozesUsed >= 2){ toast("No snoozes left."); return; }
-  d.scheduled.block3SnoozesUsed += 1;
-  const newAt = Date.now() + 10*60*1000;
-  d.scheduled.block3StartAt = newAt;
-  await cancelScheduledByTagPrefix(`b3-start-${dayKey()}`);
-  await schedulePush(
-    `b3-start-${dayKey()}`,
-    "Block 3 starting",
-    "Quick check: what's the one 10-minute win?",
-    newAt,
-    { kind:"b3_start", actions: [{ action:"snooze", title:"Snooze 10m" }] }
-  );
-  saveState();
-  toast("Snoozed 10m.");
-}
 
 // ══════════════════════════════════════════════════════════════
 // TIME EDIT FEATURE
