@@ -2,6 +2,15 @@
 import { escapeHtml } from "./dom.js";
 import { state, ensureDay, dayKey, fmtTime, buildSuggestions } from "./state.js";
 import { pushEnvironment, getPushResult, getLastSubEndpoint } from "./push.js";
+import { allItems } from "./reminders/model.js";
+
+/** How many reminders currently have an alert the Worker should be holding. */
+function reminderScheduleSummary(){
+  const items = allItems();
+  const pending = items.filter(i => !i.completed && i.dueAt !== null).length;
+  const repeating = items.filter(i => !i.completed && i.repeat).length;
+  return `${pending} scheduled${repeating ? `, ${repeating} repeating` : ""} · rebuilds the queue`;
+}
 
 export function renderHome(){
   const d = ensureDay(dayKey());
@@ -186,6 +195,13 @@ export function renderSettings(){
           <div class="item-sub">Sends via the worker. Arrives within ~2 min.</div>
         </div>
         <button class="btn" style="flex:0 0 auto" data-action="test:push">Run</button>
+      </div>
+      <div class="item">
+        <div class="item-left">
+          <div class="item-title">Re-queue all reminders</div>
+          <div class="item-sub">${reminderScheduleSummary()}</div>
+        </div>
+        <button class="btn" style="flex:0 0 auto" data-action="reminders:resync">Run</button>
       </div>
       <div class="list" style="margin-top:10px">
         ${diagnostics.map(([label, value]) => `

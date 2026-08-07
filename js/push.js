@@ -170,10 +170,14 @@ export async function syncPushState(){
 // Returns true/false rather than throwing, so a scheduling failure surfaces as
 // a specific toast instead of being swallowed by the generic action handler.
 // Never fails silently.
-export async function schedulePush(tag, title, body, sendAtMs, extra = {}){
+//
+// `opts.silent` suppresses the toasts only — every path still logs. It exists
+// for the reminders reconciler, which runs on boot and after every edit and
+// would otherwise toast at the user for something they did not ask for.
+export async function schedulePush(tag, title, body, sendAtMs, extra = {}, opts = {}){
   if(!state.settings.pushEnabled){
     console.warn("[push] not scheduled, push disabled:", tag);
-    toast("Push is off — enable it in Settings.");
+    if(!opts.silent) toast("Push is off — enable it in Settings.");
     return false;
   }
   const payload = Object.assign({
@@ -182,11 +186,31 @@ export async function schedulePush(tag, title, body, sendAtMs, extra = {}){
   }, (extra && typeof extra === "object") ? extra : {});
   try {
     await postToWorker("/schedule", payload);
-    console.log(`[push] scheduled ${tag} for ${new Date(sendAtMs).toLocaleTimeString()}`);
+    console.log(`[push] scheduled ${tag} for ${new Date(sendAtMs).toLocaleString()}`);
     return true;
   } catch(e){
     console.error("[push] schedule failed:", tag, e);
-    toast("Schedule failed — " + e.message);
+    if(!opts.silent) toast("Schedule failed — " + e.message);
+    return false;
+  }
+}
+
+/**
+ * Drops every queued notification whose tag starts with `prefix`.
+ *
+ * Reminders tag their pushes `rem-<id>-<occurrence>`, so cancelling by the
+ * `rem-<id>-` prefix clears an entire repeating series in one call. Always
+ * cancel before rescheduling — the Worker stores one KV entry per push and has
+ * no notion of replacing one.
+ */
+export async function cancelPushPrefix(prefix, opts = {}){
+  try {
+    await postToWorker("/cancelPrefix", { deviceId: state.deviceId, prefix });
+    console.log("[push] cancelled queued pushes for", prefix);
+    return true;
+  } catch(e){
+    console.error("[push] cancel failed:", prefix, e);
+    if(!opts.silent) toast("Cancel failed — " + e.message);
     return false;
   }
 }

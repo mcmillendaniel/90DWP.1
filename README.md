@@ -11,13 +11,14 @@ beyond static hosting and one Cloudflare Worker.
 
 ## What it does
 
-Five tabs, driven by a bottom tab bar.
+Six tabs, driven by a bottom tab bar.
 
 | Tab | Purpose |
 | --- | --- |
 | **Home** | Four one-tap event buttons — *I'm up*, *Baby up*, *Nap start*, *Nap end*. Each records a timestamp. Tapping a logged event again opens a time picker to correct it. |
 | **Checkoffs** | Write three outcomes for the day and check them off. Completing all three fires a "day secured" notification. Can pull a suggestion from the most recent unfinished outcome. |
 | **Morning** | Four morning-routine items — movement, shower, outcomes written, meds. Same log-then-edit behaviour as events. |
+| **Reminders** | A full reminders app — lists, due dates, repeats, priorities, flags, tags, subtasks, and lock-screen alerts. See [The Reminders tab](#the-reminders-tab). |
 | **History** | Last seven days: outcomes completed, wake time, baby-up time. |
 | **Settings** | Push enable/disable, JSON+CSV export, JSON import, device ID, and a notification diagnostics panel. |
 
@@ -70,7 +71,7 @@ web apps.
 
 ```
 index.html                app shell: header ticker, <main>, tab bar, modals
-app.js                    entry point (~40 lines) — boot sequence only
+app.js                    entry point (~70 lines) — boot sequence only
 styles.css                all styling
 manifest.webmanifest      PWA manifest
 sw.js                     service worker: caching + push + notification click
@@ -78,13 +79,26 @@ sw.js                     service worker: caching + push + notification click
 js/
   config.js               constants (worker URL, reset hour, storage keys)
   dom.js                  $, toast, escapeHtml
+  uid.js                  id generation
   state.js                persistence, day keying, time formatting
-  push.js                 subscription, scheduling, diagnostics
+  push.js                 subscription, scheduling, cancelling, diagnostics
   wake.js                 wake modal + adaptive messaging
   timepicker.js           drum-style time editor
   views.js                HTML for each tab
   backup.js               export / import
   ui.js                   render loop, event wiring, action dispatch
+
+js/reminders/
+  recur.js                date arithmetic, repeat rules, occurrence series
+  parse.js                natural-language quick-add parsing
+  schema.js               record shapes + the normaliser
+  model.js                lists, items, CRUD, smart lists, search
+  schedule.js             expands reminders into queued push notifications
+  nav.js                  which reminders screen is open
+  views.js                HTML for the reminders screens
+  actions.js              reminders action dispatch
+
+tests/                    node --test suite, no dependencies
 
 worker/
   src/index.ts            the Cloudflare Worker
@@ -96,7 +110,28 @@ worker/
 ```
 
 There are **no dependency cycles**. `ui.js` is the only module aware of both
-views and actions.
+views and actions, and `reminders/actions.js` is the only one aware of both the
+reminders model and its navigation.
+
+`state.js` normalizes through `reminders/schema.js`, which is why the schema is
+a separate file from `reminders/model.js` — the model imports `state.js`, so
+folding the two together would close a cycle. `uid.js` exists for the same
+reason.
+
+## Tests
+
+```
+TZ=America/New_York node --test "tests/*.test.mjs"
+```
+
+52 tests over the date arithmetic, the repeat rules, the quick-add parser, and
+the reminders store. No dependencies and no runner — `tests/` uses the Node
+built-in. Pin `TZ` when running them: the date logic is timezone-sensitive by
+nature, and a suite that only passes at UTC+0 is the exact bug this app has
+already shipped once.
+
+The DOM layer is not covered. It was verified by driving the real app under
+jsdom, but that needs a dependency the repo does not carry.
 
 ---
 
@@ -116,9 +151,31 @@ Everything lives under one `localStorage` key, `90dwp_state_v1`:
       events:  { imUp: ts, babyUp: ts, napStart: ts, napEnd: ts },
       morning: { movement: ts, shower: ts, outcomesWritten: ts, meds: ts }
     }
+  },
+  reminders: {
+    lists: [
+      { id, name, icon, color, sort, order, createdAt }
+    ],
+    items: [
+      {
+        id, listId, title, notes, url,
+        dueAt,          // epoch ms, or null for a reminder with no date
+        hasTime,        // false = all-day, alerts at settings.allDayAlertHour
+        repeat,         // null, or { freq, interval, weekdays?, until? }
+        earlyMin,       // alert this many minutes before dueAt
+        priority,       // 0 none, 1 low, 2 medium, 3 high
+        flagged, tags: [], subtasks: [{ id, title, done }],
+        completed, completedAt, createdAt, updatedAt, order,
+        pushSig         // fingerprint of what was last queued — see below
+      }
+    ],
+    settings: { allDayAlertHour: 9, defaultListId, showCompleted }
   }
 }
 ```
+
+A reminder's `dueAt` is the moment it is **due**; `earlyMin` shifts only when it
+**alerts**. Repeats advance the due date, and the alert is re-derived from it.
 
 All timestamps are epoch milliseconds. `null` means not logged.
 
@@ -191,6 +248,89 @@ Fine for habit nudges. Not suitable for anything time-critical.
   fetch — consumes the user gesture and WebKit rejects the call.
 
 ---
+
+## The Reminders tab
+
+A reminders app modelled on iOS Reminders, living inside this one and delivering
+its alerts through the same web-push pipeline — so they arrive on the Home
+Screen and the Lock Screen with the app closed.
+
+### What it does
+
+| | |
+| --- | --- |
+| **Lists** | Any number, each with a name, an emoji icon and a colour. Reorderable. Deleting a list deletes its reminders and cancels their queued notifications. |
+| **Smart lists** | Today, Scheduled, All, Flagged, Completed, with live counts. Today includes overdue, so a missed reminder does not disappear. |
+| **Quick add** | One field, parsed as you'd say it: `call the pediatrician tomorrow at 9am every 3 months !! #health` sets the date, time, repeat, priority and tag, and leaves `call the pediatrician` as the title. |
+| **Due dates** | A date alone is all-day and alerts at `allDayAlertHour` (09:00 by default); adding a time alerts at that time. |
+| **Repeats** | Hourly, daily, weekdays, weekend days, weekly, every 2 weeks, monthly, every 3 or 6 months, yearly, or custom (any interval, and specific weekdays for weekly rules), with an optional end date. |
+| **Early alerts** | 5 minutes to 1 week before the due time. |
+| **Priority** | None / low / medium / high, shown as `!` `!!` `!!!`, and sortable. |
+| **Flags, tags, notes, URL** | As in iOS. Tags are also a filter row on the reminders home. |
+| **Subtasks** | Per reminder, individually checkable. |
+| **Search** | Across titles, notes, tags and subtasks, in every list at once. |
+| **Sorting** | Manual (with reorder controls), due date, creation date, priority or title, per list. |
+
+Completing a **repeating** reminder advances it to its next occurrence rather
+than closing it, exactly as iOS does. It only completes for real once the
+repeat's end date has passed.
+
+### What it deliberately does not do
+
+These are iOS Reminders features that a web app on iOS cannot implement, not
+things left for later. None of them have a workaround:
+
+- **Location reminders** ("when I get home"). Geofencing needs background
+  location, which iOS gives no web API for.
+- **"When messaging" reminders.** No API exists.
+- **Siri, Shortcuts, widgets, and the Lock Screen complications.** Native only.
+- **Shared lists and collaboration.** There is no server-side data store — the
+  Worker holds push subscriptions and a notification queue, nothing else.
+- **iCloud sync between devices.** Same reason. Export/import is the only
+  bridge, as it already was for the day log.
+- **Buttons on the notification itself** ("Mark as Completed" from the Lock
+  Screen). iOS web push does not support notification actions — a documented
+  constraint of this app since before reminders existed. Tapping the
+  notification opens the app directly on that reminder instead.
+- **Attachments and photos.** Everything lives in `localStorage`, which is a few
+  megabytes.
+
+### How reminders become notifications
+
+The Worker is a dumb queue: one KV entry per notification, swept once a minute,
+deleted after sending. It knows nothing about repeat rules. So the **client
+expands a repeating reminder into its next occurrences and queues them all**,
+re-topping-up the window every time the app is opened.
+
+```
+reminder ──▶ occurrenceSeries()  ──▶  up to 24 pushes, max 120 days out
+                                       tag: rem-<itemId>-<occurrenceMs>
+                                             │
+                                    POST /schedule (one per occurrence)
+                                             │
+                                     the existing pipeline
+```
+
+The alternative was teaching the Worker about recurrence, which would have meant
+a second implementation of the date arithmetic in `recur.js` — in TypeScript, in
+a runtime with no reachable logs, deployed separately from the app. The
+expansion is bounded by whichever of 24 occurrences or 120 days comes first, but
+always yields at least one, so a yearly reminder is never dropped for being far
+away.
+
+**The trade-off, stated plainly:** a repeating reminder keeps firing for as long
+as its queued window covers — about three weeks for a daily one — and the app
+must be opened within that window to extend it. Non-repeating reminders are a
+single push and are unaffected however far out they are.
+
+Re-queueing everything on every launch would be dozens of round-trips, so each
+reminder carries a **`pushSig`** fingerprint of the fields that affect delivery
+(due time, repeat, early alert, title, notes, list, priority). Reconciling skips
+anything whose fingerprint is unchanged. Editing a reminder always cancels its
+whole tag prefix before re-queueing, so occurrences cannot accumulate.
+
+Settings → **Re-queue all reminders** forces a full rebuild and reports how many
+notifications were queued.
 
 ## Deploying
 
@@ -331,8 +471,22 @@ from the push service, the only response that actually means "gone."
   non-GET requests bypass it deliberately.
 - **Views are string templates written into `innerHTML`.** Any user-controlled
   text must go through `escapeHtml()`.
-- Textarea inputs deliberately **do not** trigger a re-render — that would
-  destroy the element being typed into.
+- Text inputs deliberately **do not** trigger a re-render — that would destroy
+  the element being typed into. `data-action-kind` picks the behaviour:
+  `input` (save, no re-render), `live` (save and re-render, restoring focus and
+  caret), `change`, `submit` (Enter), or the default `click`.
+- **All reminder date arithmetic goes through `reminders/recur.js`,** and all of
+  it is local wall-clock. Adding 24h is not "the next day": a 9am daily reminder
+  has to stay at 9am on both sides of a DST change. `new Date("2026-03-04")` is
+  UTC midnight and lands on the 3rd for anyone west of Greenwich — parse date
+  input values field by field, which `fromDateInputValue()` does.
+- **Cancel before scheduling.** The Worker stores one KV entry per push with no
+  notion of replacing one, so re-queueing without `cancelPushPrefix()` first
+  leaves duplicates behind.
+- **Reminder push tags are `rem-<itemId>-<occurrenceMs>`.** The trailing dash on
+  the `rem-<itemId>-` prefix matters — it is what makes cancelling one
+  reminder's series unambiguous.
+- **Run the tests with an explicit `TZ`.** See [Tests](#tests).
 
 ---
 
@@ -342,8 +496,13 @@ from the push service, the only response that actually means "gone."
   are two separate logbooks. Export/import is the only bridge.
 - **`localStorage` is the only copy.** No server-side backup of app data. Export
   regularly.
-- **Notification timing is ±1–2 minutes.**
-- **No test suite.** Verification is manual plus ad-hoc scripts.
+- **Notification timing is ±1–2 minutes.** Reminders inherit this: an alert set
+  for 9:00 arrives at 9:00–9:02. Fine for what this app is for; do not rely on
+  it for anything time-critical.
+- **Repeating reminders need the app opened every few weeks** to extend their
+  queued window — see [How reminders become notifications](#how-reminders-become-notifications).
+- **No DOM tests.** The date logic, parser and store are covered; the views are
+  not.
 - **Full re-render on every action** — fine at this size, would not scale.
 
 ## Open items
@@ -351,9 +510,11 @@ from the push service, the only response that actually means "gone."
 - `/sendNow` and `/debug` on the Worker are **unauthenticated**. Anyone who
   learned the device ID could push a notification to the phone. A shared secret
   between app and Worker would close this.
-- Nothing currently schedules a notification except the "day secured"
-  celebration and the Settings test buttons — the block reminders that used to
-  drive scheduling were removed. New reminder uses are yet to be designed.
 - The ticker `setInterval` runs even when the tab is hidden.
+- Reordering reminders uses ↑/↓ buttons rather than drag-and-drop, which does
+  not survive the full re-render on every action.
+- An import replaces state wholesale, so notifications queued for the *previous*
+  state's reminder ids are orphaned in KV until they fire. They are harmless —
+  the reminder they name is gone — but they do fire once.
 - `worker/` is published as part of the Pages site (harmless — no secrets — but a
   separate repo would be cleaner).

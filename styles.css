@@ -353,6 +353,313 @@ body.locked .header {
   flex-shrink: 0;
 }
 
+/* ── Reminders ────────────────────────────────────────────── */
+
+/* Smart-list tiles: two across, as on the iOS Reminders home. */
+.rem-tiles{
+  display:grid;
+  grid-template-columns:repeat(2, 1fr);
+  gap:10px;
+  margin:12px 0;
+}
+.rem-tile{
+  position:relative;
+  display:grid;
+  grid-template-columns:auto 1fr;
+  grid-template-areas:"icon count" "name name";
+  align-items:center;
+  gap:6px 10px;
+  border:0;
+  border-radius:16px;
+  padding:12px;
+  background:var(--card);
+  box-shadow:var(--shadow);
+  text-align:left;
+}
+.rem-tile:active{transform:scale(.98)}
+.rem-tile-icon{
+  grid-area:icon;
+  width:30px; height:30px;
+  border-radius:999px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:15px;
+}
+.rem-tile-count{
+  grid-area:count;
+  justify-self:end;
+  font-size:22px;
+  font-weight:900;
+}
+.rem-tile-name{
+  grid-area:name;
+  font-weight:700;
+  font-size:14px;
+  color:var(--muted);
+}
+
+.rem-banner{
+  margin:12px 0;
+  padding:12px 14px;
+  border-radius:14px;
+  background:#fff;
+  border-left:4px solid var(--yellow);
+  box-shadow:var(--shadow);
+  font-size:13px;
+  font-weight:700;
+  color:var(--muted);
+}
+
+.rem-header{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-bottom:10px;
+}
+
+.rem-list-icon{
+  width:28px; height:28px;
+  border-radius:999px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:14px;
+  flex:0 0 auto;
+}
+
+.rem-list-row{gap:6px}
+.rem-list-open{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex:1 1 auto;
+  min-width:0;
+  border:0;
+  background:transparent;
+  padding:0;
+  text-align:left;
+  font:inherit;
+  color:inherit;
+}
+
+.rem-icon-btn{
+  flex:0 0 auto;
+  border:0;
+  background:rgba(0,0,0,.06);
+  border-radius:10px;
+  min-width:34px;
+  padding:8px 9px;
+  font-size:15px;
+  font-weight:800;
+  line-height:1;
+  color:var(--text);
+}
+.rem-icon-btn:disabled{opacity:.25}
+.rem-icon-btn:active:not(:disabled){transform:scale(.94)}
+.rem-flag--on{background:rgba(224,123,57,.18)}
+
+/* Reminder rows */
+.rem-row{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+  padding:10px 12px;
+  border-radius:14px;
+  background:#fff;
+  border:1px solid rgba(0,0,0,.06);
+}
+.rem-row--done{opacity:.55}
+.rem-row--done .rem-row-title{text-decoration:line-through}
+
+.rem-check{
+  flex:0 0 auto;
+  width:26px; height:26px;
+  margin-top:1px;
+  border-radius:999px;
+  border:2px solid var(--muted);
+  background:#fff;
+  color:#fff;
+  font-size:14px;
+  font-weight:900;
+  line-height:1;
+  padding:0;
+}
+.rem-check--on{background:var(--green); border-color:var(--green)}
+.rem-check:active{transform:scale(.9)}
+
+.rem-row-open{
+  flex:1 1 auto;
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  border:0;
+  background:transparent;
+  padding:0;
+  text-align:left;
+  font:inherit;
+  color:inherit;
+}
+.rem-row-title{
+  font-weight:700;
+  /* Long titles wrap rather than being clipped — a reminder you cannot read is
+     no use. */
+  overflow-wrap:anywhere;
+}
+.rem-row-sub{
+  font-size:12px;
+  color:var(--muted);
+  overflow-wrap:anywhere;
+}
+.rem-pri{color:var(--red); font-weight:900; margin-right:4px}
+.rem-due{color:var(--muted); font-weight:700}
+.rem-due-late{color:var(--red); font-weight:800}
+.rem-meta{color:var(--muted)}
+.rem-meta--tag{font-weight:700}
+
+.rem-group{margin-bottom:14px}
+.rem-group-label{
+  font-size:12px;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  color:var(--muted);
+  margin:0 0 8px 2px;
+}
+.rem-empty{
+  padding:22px 8px;
+  text-align:center;
+  color:var(--muted);
+  font-weight:700;
+}
+
+.rem-controls{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+}
+.rem-controls select{
+  margin-left:6px;
+  padding:6px 8px;
+  border-radius:10px;
+  border:1px solid rgba(0,0,0,.12);
+  background:#fff;
+  font-size:13px;
+}
+
+.rem-chip{
+  border:0;
+  border-radius:999px;
+  padding:8px 12px;
+  background:rgba(0,0,0,.06);
+  font-size:13px;
+  font-weight:700;
+  color:var(--text);
+}
+.rem-chip--on{background:var(--green); color:#fff}
+.rem-chip:active{transform:scale(.96)}
+
+.rem-tags{display:flex; flex-wrap:wrap; gap:8px}
+.rem-tag{
+  border:0;
+  border-radius:999px;
+  padding:8px 12px;
+  background:rgba(0,0,0,.06);
+  font-size:13px;
+  font-weight:700;
+  color:var(--text);
+}
+.rem-tag span{opacity:.55; margin-left:4px}
+
+/* Editor fields */
+.rem-field{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 0;
+  border-bottom:1px solid rgba(0,0,0,.06);
+}
+.rem-field:last-of-type{border-bottom:0}
+.rem-field-label{
+  flex:0 0 92px;
+  font-size:13px;
+  font-weight:800;
+  color:var(--muted);
+}
+.rem-field select,
+.rem-field input{
+  flex:1 1 auto;
+  min-width:0;
+  padding:10px;
+  border-radius:12px;
+  border:1px solid rgba(0,0,0,.12);
+  background:#fff;
+  font-size:14px;
+  /* iOS shrinks date/time controls to their content otherwise. */
+  width:100%;
+}
+
+.rem-title-input{font-weight:800; margin-bottom:10px}
+.rem-sub-input{flex:1 1 auto; min-width:0; padding:8px 10px}
+
+/* iOS-style switch */
+.rem-switch{
+  flex:0 0 auto;
+  position:relative;
+  width:50px; height:30px;
+  border:0;
+  border-radius:999px;
+  background:rgba(0,0,0,.18);
+  transition:background .18s;
+}
+.rem-switch::after{
+  content:"";
+  position:absolute;
+  top:3px; left:3px;
+  width:24px; height:24px;
+  border-radius:999px;
+  background:#fff;
+  box-shadow:0 1px 3px rgba(0,0,0,.3);
+  transition:transform .18s;
+}
+.rem-switch--on{background:var(--green)}
+.rem-switch--on::after{transform:translateX(20px)}
+
+.rem-repeat-detail{
+  margin-top:8px;
+  padding:10px 12px;
+  border-radius:14px;
+  background:rgba(0,0,0,.04);
+}
+.rem-weekdays{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin:10px 0;
+}
+.rem-weekdays .rem-chip{padding:8px 10px; font-size:12px}
+
+.rem-picker{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top:8px;
+}
+.rem-icon-opt{
+  width:42px; height:42px;
+  border:2px solid transparent;
+  border-radius:12px;
+  background:rgba(0,0,0,.05);
+  font-size:19px;
+}
+.rem-icon-opt--on{border-color:var(--text)}
+.rem-color-opt{
+  width:34px; height:34px;
+  border:3px solid transparent;
+  border-radius:999px;
+}
+.rem-color-opt--on{border-color:var(--text)}
+
+.rem-btn--danger{color:var(--red)}
+
 /* ── Notification diagnostics result ──────────────────────── */
 .diag-result {
   margin-top: 12px;

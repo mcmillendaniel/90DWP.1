@@ -1,10 +1,9 @@
 /** Persistent state, day keying, and time formatting. */
 import { RESET_HOUR, STORAGE_KEY, DEFAULT_SETTINGS } from "./config.js";
+import { normalizeReminders } from "./reminders/schema.js";
+import { safeUUID } from "./uid.js";
 
-export function safeUUID(){
-  if(crypto && typeof crypto.randomUUID === "function") return crypto.randomUUID();
-  return `dev-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
+export { safeUUID };
 
 export function now(){ return new Date(); }
 
@@ -37,7 +36,8 @@ export function normalizeState(raw){
   return {
     deviceId: base.deviceId || safeUUID(),
     days: (base.days && typeof base.days === "object") ? base.days : {},
-    settings: Object.assign({}, DEFAULT_SETTINGS, base.settings || {})
+    settings: Object.assign({}, DEFAULT_SETTINGS, base.settings || {}),
+    reminders: normalizeReminders(base.reminders)
   };
 }
 

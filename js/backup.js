@@ -38,6 +38,30 @@ export function exportData(){
     ]);
   });
   downloadFile(`90dwp-export-${Date.now()}.csv`, rows.map(r => r.map(csvEscape).join(",")).join("\n"), "text/csv");
+
+  // The JSON backup already carries reminders; this is the readable copy, for
+  // the same reason the day log gets one.
+  const lists = new Map((state.reminders?.lists || []).map(l => [l.id, l.name]));
+  const remRows = [["list", "title", "due", "hasTime", "repeat", "priority", "flagged", "tags", "completed", "completedAt", "notes"]];
+  for(const item of state.reminders?.items || []){
+    remRows.push([
+      lists.get(item.listId) || "",
+      item.title,
+      item.dueAt ? new Date(item.dueAt).toISOString() : "",
+      item.hasTime ? "1" : "0",
+      item.repeat ? `${item.repeat.freq}/${item.repeat.interval}` : "",
+      item.priority,
+      item.flagged ? "1" : "0",
+      (item.tags || []).join(" "),
+      item.completed ? "1" : "0",
+      item.completedAt ? new Date(item.completedAt).toISOString() : "",
+      item.notes
+    ]);
+  }
+  if(remRows.length > 1){
+    downloadFile(`90dwp-reminders-${Date.now()}.csv`, remRows.map(r => r.map(csvEscape).join(",")).join("\n"), "text/csv");
+  }
+
   toast("Exported.");
 }
 
