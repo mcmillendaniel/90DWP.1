@@ -3,6 +3,7 @@ import { escapeHtml } from "./dom.js";
 import { state, ensureDay, dayKey, fmtTime, buildSuggestions } from "./state.js";
 import { pushEnvironment, getPushResult, getLastSubEndpoint } from "./push.js";
 import { allItems } from "./reminders/model.js";
+import { getAppVersion, getSwCacheName } from "./version.js";
 
 /** How many reminders currently have an alert the Worker should be holding. */
 function reminderScheduleSummary(){
@@ -134,7 +135,9 @@ export function renderSettings(){
     ["Notification permission", env.permission],
     ["Push API available", yn(env.hasPush)],
     ["Service worker support", yn(env.hasSW)],
-    ["Push endpoint", getLastSubEndpoint() || "none"]
+    ["Push endpoint", getLastSubEndpoint() || "none"],
+    ["App build", getAppVersion()],
+    ["Service worker cache", getSwCacheName() || "unknown"]
   ];
   const result = getPushResult();
   const resultBlock = result

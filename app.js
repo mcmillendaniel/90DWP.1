@@ -23,6 +23,7 @@ import { render, startTicker, openReminderFromUrl } from "./js/ui.js";
 import { registerServiceWorker, syncPushState } from "./js/push.js";
 import { rollForwardRepeats } from "./js/reminders/model.js";
 import { reconcileReminderPushes } from "./js/reminders/schedule.js";
+import { wireServiceWorkerUpdates, querySwCacheName } from "./js/version.js";
 
 /**
  * A notification tap either focuses an open window — in which case the service
@@ -43,6 +44,11 @@ function wireNotificationRouting(){
 
 async function boot(){
   document.body.classList.remove("locked");
+
+  // Attached before anything is awaited, so a worker waiting to take over
+  // cannot claim the page before the listener exists.
+  wireServiceWorkerUpdates();
+
   ensureDay(dayKey());
 
   // Repeating reminders whose occurrence went by while the app was closed show
@@ -60,7 +66,11 @@ async function boot(){
   try { await syncPushState(); }
   catch(e){ console.error("[push] sync failed:", e); }
 
-  // Re-render so Settings reflects the reconciled push state.
+  try { await querySwCacheName(); }
+  catch(e){ console.error("[sw] version query failed:", e); }
+
+  // Re-render so Settings reflects the reconciled push state and the build
+  // the service worker is actually serving.
   render();
 
   // Tops up the queued notification window for repeating reminders, and picks

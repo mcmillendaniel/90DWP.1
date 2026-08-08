@@ -335,9 +335,24 @@ notifications were queued.
 ## Deploying
 
 **App:** push to `main`. GitHub Pages builds automatically. The service worker is
-network-first for app code, so changes land on the next launch — **no cache
-version bump required.** Bump `CACHE_NAME` only when the precache list itself
-changes.
+network-first for app code, so changes land on the next launch. Bump
+`CACHE_NAME` whenever the precache list itself changes.
+
+> **Expect the first launch after a deploy to be a mixed build.** Network-first
+> falls back to the cache after 3 seconds, per file — so a slow launch can serve
+> a fresh `index.html` next to a cached `js/ui.js`. That is not theoretical: the
+> deploy that added the Reminders tab shipped six tab buttons alongside a cached
+> `ui.js` that had five views, and tapping the new tab silently rendered Home.
+>
+> Three defences now exist. A tab with no view renders an explicit "this build is
+> out of date" card with a reload button instead of falling through to Home
+> (`renderStaleBuild()` in `ui.js`). A worker that takes over a page it did not
+> start with triggers one bounded reload (`version.js`). And Settings →
+> diagnostics shows **App build** next to **Service worker cache**; if those
+> disagree with what was deployed, that is the failure.
+>
+> Bump `APP_VERSION` in `config.js` alongside `CACHE_NAME` so the readout means
+> something.
 
 **Worker:** from `worker/`, run `npx wrangler deploy`. Requires the KV namespace
 id in `wrangler.toml` and three secrets:
@@ -459,7 +474,9 @@ from the push service, the only response that actually means "gone."
 
 - **Do not reintroduce silent returns.** Every failure path should toast or log
   something specific. Three months of "notifications don't work" came from code
-  that failed quietly.
+  that failed quietly, and `VIEWS[currentTab] || renderHome` later hid a broken
+  deploy the same way. A fallback that renders *something* is still a silent
+  failure.
 - **`Notification.requestPermission()` must stay synchronous** in the click
   handler. Adding an `await` above it breaks iOS enable, and the failure looks
   like a permission denial.

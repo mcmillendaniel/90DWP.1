@@ -1,5 +1,5 @@
 /** Controller: tab state, the render loop, event wiring, and action dispatch. */
-import { $, toast } from "./dom.js";
+import { $, toast, escapeHtml } from "./dom.js";
 import { saveState, ensureDay, dayKey, buildSuggestions } from "./state.js";
 import { renderHome, renderCheckoffs, renderMorning, renderHistory, renderSettings } from "./views.js";
 import { openWakeModal, pickWakeMessage } from "./wake.js";
@@ -87,9 +87,42 @@ export function render(){
   const main = $("main");
   if(!main) return;
   const focus = captureFocus();
-  main.innerHTML = (VIEWS[currentTab] || renderHome)();
+
+  // A tab with no view used to fall back to Home. That hid a real bug: a deploy
+  // added the Reminders tab to index.html while the service worker still served
+  // a cached ui.js with no view for it, and tapping the tab quietly rendered the
+  // wrong screen. Say what happened instead.
+  const view = VIEWS[currentTab];
+  if(!view){
+    console.error(`[ui] no view for tab "${currentTab}" — index.html and ui.js are from different builds`);
+    main.innerHTML = renderStaleBuild(currentTab);
+  } else {
+    main.innerHTML = view();
+  }
+
   wireActions();
   restoreFocus(focus);
+}
+
+function renderStaleBuild(tab){
+  return `
+    <section class="card">
+      <h2 class="h2">This build is out of date</h2>
+      <div class="small">
+        The app shell knows about a “${escapeHtml(tab)}” tab but this copy of the
+        code does not, so the two came from different deploys. Reloading fetches
+        a consistent set.
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" data-action="app:reload">Reload now</button>
+      </div>
+      <div class="small" style="margin-top:10px">
+        If it comes back after reloading, force-quit the app from the app
+        switcher and open it again. Do not delete the app — that erases your
+        logbook. Export from Settings first if you need to.
+      </div>
+    </section>
+  `;
 }
 
 /**
@@ -266,6 +299,7 @@ async function handleAction(act, el){
       : `${summary.queued} notification${summary.queued === 1 ? "" : "s"} queued.`);
     return;
   }
+  if(act === "app:reload"){ location.reload(); return; }
   if(act === "export"){ exportData(); return; }
   if(act === "import"){
     importData(() => {

@@ -6,7 +6,7 @@
  * cache-first version served stale JS indefinitely, which is why every deploy
  * needed a manual version bump to take effect.
  */
-const CACHE_NAME = "90dwp-v11";
+const CACHE_NAME = "90dwp-v12";
 const NETWORK_TIMEOUT_MS = 3000;
 
 const PRECACHE = [
@@ -18,6 +18,7 @@ const PRECACHE = [
   "./js/config.js",
   "./js/dom.js",
   "./js/uid.js",
+  "./js/version.js",
   "./js/state.js",
   "./js/push.js",
   "./js/wake.js",
@@ -124,6 +125,14 @@ self.addEventListener("fetch", (event) => {
   if(url.origin !== self.location.origin) return;
 
   event.respondWith(isAppCode(url, request) ? networkFirst(request) : cacheFirst(request));
+});
+
+// Lets the page report which cache it is actually being served from, so a
+// mixed build shows up in Settings instead of as a tab that renders the wrong
+// screen.
+self.addEventListener("message", (event) => {
+  if(event.data?.type !== "GET_VERSION") return;
+  event.ports?.[0]?.postMessage({ cache: CACHE_NAME });
 });
 
 self.addEventListener("push", (event) => {
