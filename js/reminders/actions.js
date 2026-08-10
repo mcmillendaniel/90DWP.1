@@ -67,7 +67,9 @@ export function handleReminderAction(act, el){
     case "toggle": {
       const result = toggleComplete(parts[2]);
       if(!result) return true;
-      if(result.advanced){
+      if(result.alreadyDone){
+        toast(`Already done today — next ${formatDueLabel(result.item.dueAt, result.item.hasTime)}`);
+      } else if(result.advanced){
         toast(`Next: ${formatDueLabel(result.item.dueAt, result.item.hasTime)}`);
       } else {
         toast(result.item.completed ? "Completed ✅" : "Marked not completed");

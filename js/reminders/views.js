@@ -8,11 +8,11 @@ import { escapeHtml } from "../dom.js";
 import { state } from "../state.js";
 import {
   allLists, getList, getItem, queryItems, searchAll, counts, groupByDate,
-  allTags, isOverdue, remindersSettings,
+  allTags, isOverdue, remindersSettings, homeAgenda,
   SMART_LISTS, LIST_COLORS, LIST_ICONS, SORT_MODES, PRIORITY_LABELS, PRIORITY_MARKS
 } from "./model.js";
 import {
-  REPEAT_PRESETS, repeatPresetId, repeatLabel, formatDueLabel,
+  REPEAT_PRESETS, repeatPresetId, repeatLabel, formatDueLabel, formatTime,
   toDateInputValue, toTimeInputValue, WEEKDAY_SHORT
 } from "./recur.js";
 import { nav } from "./nav.js";
@@ -47,6 +47,80 @@ function pushOffBanner(){
     <div class="rem-banner">
       Notifications are off, so these ${dated} dated reminder${dated === 1 ? "" : "s"}
       won't alert. Turn on Push Notifications in Settings.
+    </div>
+  `;
+}
+
+// ------------------------------------------------------- home tab agenda
+
+/** Beyond this the Home tab stops being a glance; the rest stay in Reminders. */
+const HOME_AGENDA_LIMIT = 12;
+
+/**
+ * Today's reminders, rendered for the Home tab.
+ *
+ * Read-only in one respect on purpose: there is no composer here. Reminders are
+ * made in the Reminders tab and *appear* here on the day they are due. What
+ * Home offers is the two things worth doing at a glance — check it off, or open
+ * it to edit.
+ */
+export function renderHomeAgenda(now = Date.now()){
+  const entries = homeAgenda(now);
+  const shown = entries.slice(0, HOME_AGENDA_LIMIT);
+  const hidden = entries.length - shown.length;
+  const open = entries.filter(e => !e.done).length;
+
+  const body = shown.length
+    ? `<div class="list">${shown.map(agendaRow).join("")}</div>`
+    : `<div class="rem-empty">Nothing due today.<div class="small" style="margin-top:6px;font-weight:600">
+         Reminders appear here on the day they're due.
+       </div></div>`;
+
+  return `
+    <section class="card">
+      <div class="rem-header">
+        <h2 class="h2" style="margin:0;flex:1">Today's Reminders</h2>
+        ${entries.length ? `<span class="pill">${open}</span>` : ""}
+      </div>
+      ${body}
+      ${hidden > 0 ? `<div class="small" style="margin-top:10px">+${hidden} more in the Reminders tab.</div>` : ""}
+    </section>
+  `;
+}
+
+function agendaRow({ item, done, advanced, overdue }){
+  const list = getList(item.listId);
+  const marks = PRIORITY_MARKS[item.priority];
+
+  const sub = [];
+  if(advanced){
+    // Its dueAt is tomorrow's occurrence now; showing that time here would read
+    // as though it were still outstanding.
+    sub.push(`<span class="rem-due">Done today</span>`);
+  } else if(overdue){
+    sub.push(`<span class="rem-due-late">Overdue · ${escapeHtml(formatDueLabel(item.dueAt, item.hasTime))}</span>`);
+  } else if(item.hasTime){
+    sub.push(`<span class="rem-due">${escapeHtml(formatTime(item.dueAt))}</span>`);
+  } else {
+    sub.push(`<span class="rem-due">All day</span>`);
+  }
+  if(item.repeat) sub.push(`<span class="rem-meta">🔁</span>`);
+  if(list) sub.push(`<span class="rem-meta">${escapeHtml(list.icon)} ${escapeHtml(list.name)}</span>`);
+  if(item.subtasks.length){
+    const doneSubs = item.subtasks.filter(s => s.done).length;
+    sub.push(`<span class="rem-meta">☑ ${doneSubs}/${item.subtasks.length}</span>`);
+  }
+
+  return `
+    <div class="rem-row ${done ? "rem-row--done" : ""}">
+      <button class="rem-check ${done ? "rem-check--on" : ""}"
+              style="border-color:${list ? colorHex(list.color) : "#999"}"
+              data-action="rem:toggle:${item.id}" aria-label="Complete">${done ? "✓" : ""}</button>
+      <button class="rem-row-open" data-action="home:openReminder:${item.id}">
+        <span class="rem-row-title">${marks ? `<span class="rem-pri">${marks}</span>` : ""}${escapeHtml(item.title || "New Reminder")}</span>
+        <span class="rem-row-sub">${sub.join(" · ")}</span>
+      </button>
+      <button class="rem-icon-btn" data-action="home:openReminder:${item.id}" aria-label="Edit reminder">✎</button>
     </div>
   `;
 }

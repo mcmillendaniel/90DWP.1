@@ -15,7 +15,7 @@ Six tabs, driven by a bottom tab bar.
 
 | Tab | Purpose |
 | --- | --- |
-| **Home** | Four one-tap event buttons — *I'm up*, *Baby up*, *Nap start*, *Nap end*. Each records a timestamp. Tapping a logged event again opens a time picker to correct it. |
+| **Home** | A banner with today's date and the day's weather, four one-tap event buttons — *I'm up*, *Baby up*, *Nap start*, *Nap end* — and the reminders due today. Each event button records a timestamp; tapping a logged event again opens a time picker to correct it. |
 | **Checkoffs** | Write three outcomes for the day and check them off. Completing all three fires a "day secured" notification. Can pull a suggestion from the most recent unfinished outcome. |
 | **Morning** | Four morning-routine items — movement, shower, outcomes written, meds. Same log-then-edit behaviour as events. |
 | **Reminders** | A full reminders app — lists, due dates, repeats, priorities, flags, tags, subtasks, and lock-screen alerts. See [The Reminders tab](#the-reminders-tab). |
@@ -88,6 +88,13 @@ js/
   backup.js               export / import
   ui.js                   render loop, event wiring, action dispatch
 
+js/weather/
+  settings.js             the stored location + its normaliser
+  summary.js              provider payloads -> the banner's summary (pure)
+  sources.js              the NWS and Open-Meteo fetches
+  service.js              cache, refresh policy, location
+  view.js                 the Home banner and the Settings card
+
 js/reminders/
   recur.js                date arithmetic, repeat rules, occurrence series
   parse.js                natural-language quick-add parsing
@@ -124,8 +131,10 @@ reason.
 TZ=America/New_York node --test "tests/*.test.mjs"
 ```
 
-52 tests over the date arithmetic, the repeat rules, the quick-add parser, and
-the reminders store. No dependencies and no runner — `tests/` uses the Node
+75 tests over the date arithmetic, the repeat rules, the quick-add parser, the
+reminders store, the Home agenda, and the weather summary — the last of these
+against trimmed copies of real NWS and Open-Meteo payloads, so no test touches
+the network. No dependencies and no runner — `tests/` uses the Node
 built-in. Pin `TZ` when running them: the date logic is timezone-sensitive by
 nature, and a suite that only passes at UTC+0 is the exact bug this app has
 already shipped once.
@@ -142,7 +151,10 @@ Everything lives under one `localStorage` key, `90dwp_state_v1`:
 ```js
 {
   deviceId: "uuid",                    // identifies this device to the worker
-  settings: { pushEnabled: bool },
+  settings: {
+    pushEnabled: bool,
+    weather: { lat, lon, label }       // null coordinates = no location set
+  },
   days: {
     "2026-07-25": {
       createdAt: 1690000000000,
@@ -165,7 +177,9 @@ Everything lives under one `localStorage` key, `90dwp_state_v1`:
         earlyMin,       // alert this many minutes before dueAt
         priority,       // 0 none, 1 low, 2 medium, 3 high
         flagged, tags: [], subtasks: [{ id, title, done }],
-        completed, completedAt, createdAt, updatedAt, order,
+        completed, completedAt,
+        lastDoneAt,     // last checked off, including repeats that then advanced
+        createdAt, updatedAt, order,
         pushSig         // fingerprint of what was last queued — see below
       }
     ],
@@ -183,11 +197,86 @@ All timestamps are epoch milliseconds. `null` means not logged.
 blob cannot crash startup. `state` is exported as a live binding and is only
 ever reassigned through `replaceState()`, which preserves the device id.
 
-A second key, `90dwp_last_push_result`, stores the most recent notification test
-result so it survives a reload.
+Two further keys sit outside that blob because neither belongs in a logbook
+export: `90dwp_last_push_result` holds the most recent notification test result
+so it survives a reload, and `90dwp_weather_v1` holds the last fetched forecast
+so the banner has something to paint before the network answers.
 
 > Days written before July 2026 may carry a leftover `scheduled` key from the
 > removed time-block feature. It is inert; nothing reads it.
+
+---
+
+## The Home banner
+
+### Weather
+
+The banner across the top of Home is the day's date on the left and a summary of
+the day's weather on the right: high and low, chance of rain, when the
+temperature peaks, and anything worth a warning.
+
+**Where the data comes from.** The primary source is the **National Weather
+Service** (`api.weather.gov`) — the agency whose forecasts every US weather
+service, the Weather Channel included, is ultimately derived from. It is free,
+needs no key, sends `Access-Control-Allow-Origin: *` so a static page can call it
+directly, and it is the only source carrying official watches, warnings and
+advisories.
+
+**Open-Meteo** is called alongside it for the one thing NWS does not publish in
+its public API — the **UV index** — and stands in as the whole forecast when NWS
+cannot answer, which is anywhere outside US coverage.
+
+Three requests make up an NWS refresh: `/points/{lat},{lon}` to resolve the
+forecast grid (cached — it never changes for a point), then the daily and hourly
+forecasts for that grid, plus `/alerts/active`. A failed alerts call is allowed
+to pass: a missing advisory should not cost the banner its temperatures.
+
+**Warnings** are official NWS alerts in force during the logbook day, worst
+severity first, followed by derived ones: UV index ≥ 6, thunderstorms in the
+forecast text, a high ≥ 95°, a low ≤ 32°, wind ≥ 25 mph, rain ≥ 70%.
+
+**High and low** come from the NWS daily periods rather than the hourly feed,
+because the hourly forecast begins at the current hour — by the afternoon it can
+no longer see the day's high. The **peak time** does come from the hourly feed,
+which is the only place it exists.
+
+**Caching.** The last summary is written to `90dwp_weather_v1` and rendered
+immediately on launch, so a phone with no signal opens to this morning's forecast
+with an "as of" time on it rather than an empty box. A refresh runs in the
+background when the cached copy is over 30 minutes old, when the logbook day has
+turned over, or when the app is brought back to the foreground — and re-renders
+only if something changed. Nothing on this path is awaited by the first render.
+
+**Location** is set in Settings, either from the device (one fix, not watched —
+a forecast grid is miles across) or by typing coordinates, which is the way to
+pin the forecast to home rather than to wherever the phone is. With no location
+set the banner says so and offers the button; it never guesses.
+
+### Today's reminders
+
+Below the event buttons, Home lists the reminders due **today**, where today is
+the logbook day — 4:00am to 4:00am, like everything else in the app.
+
+- A dated reminder appears on the day it is due **and not before**. A doctor's
+  appointment set today for next Tuesday shows up on next Tuesday morning,
+  already there before its alert fires.
+- Once it appears it **stays for the rest of the day**, checked off or not, so
+  the list reads as a record of the day instead of emptying itself as it is
+  worked through. It clears when the day does.
+- Overdue reminders carry forward, marked as such — the same rule the Today
+  smart list follows.
+- Undated reminders never appear: with no date they have no day to land on.
+
+Two things can be done from here and no more: **check one off**, or **tap it to
+open its editor** in the Reminders tab. There is deliberately no composer —
+reminders are authored in the Reminders tab and appear here on their day.
+
+A repeating reminder checked off from Home advances to its next occurrence, as
+it does everywhere else, but it keeps showing as done for the rest of today
+rather than vanishing into tomorrow. That is what `lastDoneAt` is for:
+`completedAt` cannot answer "was this done today" for a repeat, because it is
+null again the moment the item rolls forward. Checking the same daily reminder
+off twice in one day is now a no-op instead of skipping a day.
 
 ---
 
@@ -503,6 +592,19 @@ from the push service, the only response that actually means "gone."
 - **Reminder push tags are `rem-<itemId>-<occurrenceMs>`.** The trailing dash on
   the `rem-<itemId>-` prefix matters — it is what makes cancelling one
   reminder's series unambiguous.
+- **`Number(null)` is `0`, and `0,0` is a real place.** Both the weather
+  summariser and the location normaliser reject non-numbers explicitly rather
+  than leaning on `Number.isFinite()`, because coercion turns "no data" into a
+  reading: a missing chance of precipitation became "Rain 0%", and an unset
+  location became a point in the Gulf of Guinea. Both were caught by tests, not
+  by looking at the code.
+- **The weather providers are called from the page, not through the Worker.**
+  They are keyless public GETs; a hop through the Worker would only add
+  something else that can fail. The service worker ignores cross-origin
+  requests, so nothing caches them but `service.js`.
+- **`render()` never awaits the weather.** The banner paints from cache and a
+  refresh re-renders when it lands. Anything that makes the first paint wait on
+  the network is a regression.
 - **Run the tests with an explicit `TZ`.** See [Tests](#tests).
 
 ---
@@ -518,8 +620,12 @@ from the push service, the only response that actually means "gone."
   it for anything time-critical.
 - **Repeating reminders need the app opened every few weeks** to extend their
   queued window — see [How reminders become notifications](#how-reminders-become-notifications).
-- **No DOM tests.** The date logic, parser and store are covered; the views are
-  not.
+- **No DOM tests.** The date logic, parser, store and weather summariser are
+  covered; the views are not.
+- **The weather needs a location and a connection.** Coverage for the official
+  alerts and the NWS forecast is the US and its territories; elsewhere the
+  banner falls back to Open-Meteo and loses the alerts. With no connection it
+  shows the last forecast it fetched, stamped with the time.
 - **Full re-render on every action** — fine at this size, would not scale.
 
 ## Open items

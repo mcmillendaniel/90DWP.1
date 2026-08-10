@@ -23,6 +23,7 @@ import { render, startTicker, openReminderFromUrl } from "./js/ui.js";
 import { registerServiceWorker, syncPushState } from "./js/push.js";
 import { rollForwardRepeats } from "./js/reminders/model.js";
 import { reconcileReminderPushes } from "./js/reminders/schedule.js";
+import { refreshWeather } from "./js/weather/service.js";
 import { wireServiceWorkerUpdates, querySwCacheName } from "./js/version.js";
 
 /**
@@ -39,6 +40,24 @@ function wireNotificationRouting(){
   navigator.serviceWorker.addEventListener("message", (event) => {
     if(event.data?.type !== "NOTIF_ACTION") return;
     if(openReminderFromUrl(event.data.data?.url)) render();
+  });
+}
+
+/**
+ * An installed PWA is rarely relaunched — it is left open for days and brought
+ * back to the foreground. Without this, coming back tomorrow morning would show
+ * yesterday's date, yesterday's forecast, and yesterday's reminders until
+ * something else forced a render.
+ */
+function wireResume(){
+  document.addEventListener("visibilitychange", () => {
+    if(document.visibilityState !== "visible") return;
+    const rolled = rollForwardRepeats();
+    render();
+    refreshWeather().then((changed) => { if(changed) render(); });
+    // An occurrence that rolled while the app sat in the background has a new
+    // due time, so what is queued for it is now wrong.
+    if(rolled) reconcileReminderPushes().catch(e => console.error("[reminders] reconcile failed:", e));
   });
 }
 
@@ -59,6 +78,11 @@ async function boot(){
   render();
   startTicker();
   wireNotificationRouting();
+  wireResume();
+
+  // The banner paints from the cached forecast immediately; this refreshes it
+  // in the background and re-renders only if something changed.
+  refreshWeather().then((changed) => { if(changed) render(); });
 
   try { await registerServiceWorker(); }
   catch(e){ console.error("[sw] registration failed:", e); }

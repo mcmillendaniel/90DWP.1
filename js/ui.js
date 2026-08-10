@@ -14,6 +14,8 @@ import { handleReminderAction } from "./reminders/actions.js";
 import { invalidateAllPushSignatures, reconcileReminderPushes } from "./reminders/schedule.js";
 import { openItem, openScope } from "./reminders/nav.js";
 import { getItem } from "./reminders/model.js";
+import { refreshWeather, useDeviceLocation, setWeatherLocation, clearWeatherLocation, weatherLocation } from "./weather/service.js";
+import { parseCoords } from "./weather/settings.js";
 
 let currentTab = "home";
 
@@ -235,6 +237,20 @@ async function handleAction(act, el){
     return;
   }
 
+  if(act.startsWith("wx:")) return handleWeatherAction(act, el);
+
+  // A reminder tapped on the Home tab opens where it can be edited: its own
+  // screen in the Reminders tab. Home shows the day's reminders and lets them
+  // be checked off; it is deliberately not a place to author them.
+  if(act.startsWith("home:openReminder:")){
+    const item = getItem(act.split(":")[2]);
+    if(!item){ toast("That reminder no longer exists."); return; }
+    openScope(item.listId);
+    openItem(item.id);
+    setActiveTab("reminders");
+    return;
+  }
+
   const d = ensureDay(dayKey());
 
   if(act.startsWith("editOutcome:")){
@@ -342,6 +358,50 @@ async function handleAction(act, el){
     }
 
     toast("Logged.");
+    return;
+  }
+}
+
+/**
+ * The weather banner's actions. Everything here ends in a re-render by the
+ * caller, so the banner picks up whatever the service now holds — including a
+ * failure, which the banner states rather than swallowing.
+ */
+async function handleWeatherAction(act, el){
+  const verb = act.split(":")[1];
+
+  if(verb === "refresh"){
+    toast("Refreshing forecast…");
+    const ok = await refreshWeather({ force: true });
+    toast(ok ? "Forecast updated." : "Could not reach the forecast service.");
+    return;
+  }
+
+  if(verb === "locate"){
+    toast("Finding your location…");
+    try {
+      await useDeviceLocation();
+      toast(`Location set${weatherLocation().label ? ` — ${weatherLocation().label}` : ""}.`);
+    } catch(e){
+      console.error("[weather] location failed:", e);
+      toast(e.message || "Could not get a location.");
+    }
+    return;
+  }
+
+  if(verb === "setCoords"){
+    const coords = parseCoords(el?.value);
+    if(!coords){ toast("Enter coordinates as 35.2271, -80.8431"); return; }
+    setWeatherLocation({ ...coords, label: "" });
+    toast("Location saved. Fetching forecast…");
+    const ok = await refreshWeather({ force: true });
+    if(!ok) toast("Saved, but the forecast could not be loaded.");
+    return;
+  }
+
+  if(verb === "clear"){
+    clearWeatherLocation();
+    toast("Weather location cleared.");
     return;
   }
 }

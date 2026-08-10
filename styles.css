@@ -353,6 +353,120 @@ body.locked .header {
   flex-shrink: 0;
 }
 
+/* ── Weather banner ───────────────────────────────────────── */
+
+/* Date on the left, the day's weather on the right, one box. */
+.wx-banner{
+  display:grid;
+  grid-template-columns:84px 1fr;
+  align-items:stretch;
+  background:var(--card);
+  border-radius:16px;
+  box-shadow:var(--shadow);
+  margin:12px 0;
+  overflow:hidden;
+}
+
+.wx-date{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:12px 6px;
+  border-right:1px solid rgba(0,0,0,.10);
+  background:rgba(255,255,255,.55);
+}
+.wx-dow{
+  font-size:15px;
+  font-weight:800;
+  letter-spacing:.02em;
+  color:var(--muted);
+  line-height:1;
+}
+.wx-day{
+  font-size:38px;
+  font-weight:900;
+  line-height:1.05;
+  letter-spacing:-.02em;
+}
+
+.wx-body{
+  padding:12px 14px;
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:4px;
+}
+
+.wx-headline{
+  display:flex;
+  align-items:baseline;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.wx-temps{
+  font-size:20px;
+  font-weight:900;
+  line-height:1.1;
+}
+.wx-cond{
+  font-size:13px;
+  font-weight:700;
+  color:var(--muted);
+  min-width:0;
+  overflow-wrap:anywhere;
+}
+.wx-facts{
+  font-size:13px;
+  font-weight:700;
+  color:var(--muted);
+}
+
+.wx-warns{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-top:2px;
+}
+.wx-warn{
+  padding:4px 9px;
+  border-radius:999px;
+  background:rgba(216,58,58,.12);
+  color:var(--red);
+  font-size:12px;
+  font-weight:800;
+}
+
+.wx-foot{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-top:2px;
+  font-size:11px;
+  color:var(--muted);
+}
+.wx-refresh{
+  flex:0 0 auto;
+  border:0;
+  background:rgba(0,0,0,.06);
+  border-radius:999px;
+  width:28px; height:28px;
+  font-size:14px;
+  font-weight:800;
+  line-height:1;
+  color:var(--text);
+}
+.wx-refresh:active{transform:scale(.92)}
+
+.wx-msg{
+  font-size:13px;
+  font-weight:700;
+  color:var(--muted);
+}
+.wx-btn{flex:0 0 auto; padding:8px 12px; font-size:13px}
+
 /* ── Reminders ────────────────────────────────────────────── */
 
 /* Smart-list tiles: two across, as on the iOS Reminders home. */

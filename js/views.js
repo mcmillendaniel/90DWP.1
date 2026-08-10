@@ -3,6 +3,8 @@ import { escapeHtml } from "./dom.js";
 import { state, ensureDay, dayKey, fmtTime, buildSuggestions } from "./state.js";
 import { pushEnvironment, getPushResult, getLastSubEndpoint } from "./push.js";
 import { allItems } from "./reminders/model.js";
+import { renderHomeAgenda } from "./reminders/views.js";
+import { weatherBanner, weatherSettingsCard } from "./weather/view.js";
 import { getAppVersion, getSwCacheName } from "./version.js";
 
 /** How many reminders currently have an alert the Worker should be holding. */
@@ -16,10 +18,7 @@ function reminderScheduleSummary(){
 export function renderHome(){
   const d = ensureDay(dayKey());
   return `
-    <section class="card">
-      <h2 class="h2">Today</h2>
-      <div class="small">Day resets at 4:00am</div>
-    </section>
+    ${weatherBanner()}
     <section class="card">
       <h2 class="h2">Events</h2>
       <div class="row">
@@ -36,6 +35,7 @@ export function renderHome(){
       </div>
       <div class="small" style="margin-top:8px">Tap a logged event again to edit its time.</div>
     </section>
+    ${renderHomeAgenda()}
   `;
 }
 
@@ -183,6 +183,7 @@ export function renderSettings(){
         Device ID: <b>${escapeHtml(state.deviceId)}</b>
       </div>
     </section>
+    ${weatherSettingsCard()}
     <section class="card">
       <h2 class="h2">Notification diagnostics</h2>
       <div class="item">
