@@ -347,3 +347,107 @@ test("a full export/import round trip preserves reminders", async () => {
   assert.equal(restored.subtasks.length, 1);
   assert.equal(model.getList(list.id).name, "Errands");
 });
+
+// ------------------------------------------------------------ home agenda
+
+/**
+ * The Home tab's list. The logbook day these use runs 2026-03-04 04:00 to
+ * 2026-03-05 04:00 — see dayBounds() in state.js.
+ */
+test("the home agenda shows today's reminders and nothing scheduled later", () => {
+  reset();
+  const now = at(2026, 3, 4, 8);
+  const today = model.createItem({ title: "school run", dueAt: at(2026, 3, 4, 15), hasTime: true });
+  const nextWeek = model.createItem({ title: "doctor", dueAt: at(2026, 3, 10, 9), hasTime: true });
+  const undated = model.createItem({ title: "someday" });
+
+  const ids = model.homeAgenda(now).map(e => e.item.id);
+  assert.deepEqual(ids, [today.id], "only what is due today");
+  assert.ok(!ids.includes(nextWeek.id), "a reminder set for next week waits for next week");
+  assert.ok(!ids.includes(undated.id), "an undated reminder has no day to land on");
+});
+
+test("the home agenda keeps a reminder for the rest of the day once done", () => {
+  reset();
+  const item = model.createItem({ title: "meds", dueAt: at(2026, 3, 4, 9), hasTime: true });
+  model.toggleComplete(item.id, at(2026, 3, 4, 9, 30));
+
+  const laterToday = model.homeAgenda(at(2026, 3, 4, 22));
+  assert.equal(laterToday.length, 1, "it stays visible after being checked off");
+  assert.equal(laterToday[0].done, true);
+
+  // 3:00am still belongs to the previous logbook day; 5:00am does not.
+  assert.equal(model.homeAgenda(at(2026, 3, 5, 3)).length, 1);
+  assert.equal(model.homeAgenda(at(2026, 3, 5, 5)).length, 0, "it clears when the day does");
+});
+
+test("a repeating reminder checked off today reads as done, not as tomorrow's", () => {
+  reset();
+  const item = model.createItem({
+    title: "vitamins", dueAt: at(2026, 3, 4, 9), hasTime: true,
+    repeat: { freq: "daily", interval: 1 }
+  });
+  model.toggleComplete(item.id, at(2026, 3, 4, 9, 5));
+
+  const entries = model.homeAgenda(at(2026, 3, 4, 18));
+  assert.equal(entries.length, 1, "it has rolled to tomorrow but today's is still shown");
+  assert.equal(entries[0].done, true);
+  assert.equal(entries[0].advanced, true, "the row knows not to show tomorrow's time as if it were due");
+  assert.equal(new Date(entries[0].item.dueAt).getDate(), 5, "the item itself points at tomorrow");
+
+  // Tomorrow it is back, unchecked.
+  const tomorrow = model.homeAgenda(at(2026, 3, 5, 10));
+  assert.equal(tomorrow.length, 1);
+  assert.equal(tomorrow[0].done, false);
+});
+
+test("checking a daily reminder off twice in one day does not skip a day", () => {
+  reset();
+  const item = model.createItem({
+    title: "vitamins", dueAt: at(2026, 3, 4, 9), hasTime: true,
+    repeat: { freq: "daily", interval: 1 }
+  });
+  model.toggleComplete(item.id, at(2026, 3, 4, 9, 5));
+  const again = model.toggleComplete(item.id, at(2026, 3, 4, 14));
+
+  assert.equal(again.alreadyDone, true);
+  assert.equal(new Date(again.item.dueAt).getDate(), 5, "still tomorrow, not the day after");
+
+  // An hourly repeat is a different matter: a second tap is a second occurrence.
+  const hourly = model.createItem({
+    title: "stand up", dueAt: at(2026, 3, 4, 9), hasTime: true,
+    repeat: { freq: "hourly", interval: 1 }
+  });
+  model.toggleComplete(hourly.id, at(2026, 3, 4, 9, 5));
+  const second = model.toggleComplete(hourly.id, at(2026, 3, 4, 10, 5));
+  assert.equal(second.advanced, true);
+  assert.equal(new Date(second.item.dueAt).getHours(), 11);
+});
+
+test("the home agenda carries overdue reminders forward and sorts them first", () => {
+  reset();
+  const now = at(2026, 3, 4, 12);
+  const later = model.createItem({ title: "pick up", dueAt: at(2026, 3, 4, 17), hasTime: true });
+  const missed = model.createItem({ title: "call bank", dueAt: at(2026, 3, 2, 10), hasTime: true });
+  const finished = model.createItem({ title: "email", dueAt: at(2026, 3, 4, 8), hasTime: true });
+  model.toggleComplete(finished.id, at(2026, 3, 4, 8, 30));
+
+  const entries = model.homeAgenda(now);
+  assert.deepEqual(entries.map(e => e.item.id), [missed.id, later.id, finished.id],
+    "overdue first, then by due time, with what is done at the bottom");
+  assert.equal(entries[0].overdue, true);
+  assert.equal(entries[2].done, true);
+});
+
+test("a reminder completed on an earlier day is gone from the agenda", () => {
+  reset();
+  const item = model.createItem({ title: "old task", dueAt: at(2026, 3, 2, 9), hasTime: true });
+  model.toggleComplete(item.id, at(2026, 3, 2, 10));
+  assert.equal(model.homeAgenda(at(2026, 3, 4, 12)).length, 0);
+});
+
+test("lastDoneAt is backfilled from an older stored blob", () => {
+  const item = normalizeItem({ title: "x", completed: true, completedAt: 1700 });
+  assert.equal(item.lastDoneAt, 1700, "items written before lastDoneAt existed still read as done");
+  assert.equal(normalizeItem({ title: "x" }).lastDoneAt, null);
+});

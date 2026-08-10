@@ -108,6 +108,15 @@ export function normalizeItem(raw, index = 0){
     subtasks: Array.isArray(base.subtasks) ? base.subtasks.slice(0, MAX_SUBTASKS).map(normalizeSubtask) : [],
     completed: !!base.completed,
     completedAt: Number.isFinite(base.completedAt) ? base.completedAt : null,
+    /**
+     * When this reminder was last checked off, including the times a repeating
+     * one was checked off and advanced rather than completed. `completedAt`
+     * cannot answer that — it is null again the moment the item rolls to its
+     * next occurrence — and the Home agenda needs to know that today's
+     * occurrence is done.
+     */
+    lastDoneAt: Number.isFinite(base.lastDoneAt) ? base.lastDoneAt
+      : (Number.isFinite(base.completedAt) ? base.completedAt : null),
     createdAt: Number.isFinite(base.createdAt) ? base.createdAt : Date.now(),
     updatedAt: Number.isFinite(base.updatedAt) ? base.updatedAt : Date.now(),
     order: Number.isFinite(base.order) ? Number(base.order) : index,

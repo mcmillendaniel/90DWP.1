@@ -6,7 +6,7 @@
  * cache-first version served stale JS indefinitely, which is why every deploy
  * needed a manual version bump to take effect.
  */
-const CACHE_NAME = "90dwp-v12";
+const CACHE_NAME = "90dwp-v13";
 const NETWORK_TIMEOUT_MS = 3000;
 
 const PRECACHE = [
@@ -34,6 +34,11 @@ const PRECACHE = [
   "./js/reminders/nav.js",
   "./js/reminders/views.js",
   "./js/reminders/actions.js",
+  "./js/weather/settings.js",
+  "./js/weather/summary.js",
+  "./js/weather/sources.js",
+  "./js/weather/service.js",
+  "./js/weather/view.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png"
 ];

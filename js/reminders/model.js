@@ -12,7 +12,7 @@
  * actions have a single import to reach for.
  */
 
-import { state, saveState } from "../state.js";
+import { state, saveState, dayBounds } from "../state.js";
 import {
   normalizeList, normalizeItem, normalizeSubtask, normalizeReminders, SMART_LISTS
 } from "./schema.js";
@@ -145,22 +145,37 @@ export function toggleComplete(id, now = Date.now()){
   if(!item) return null;
 
   if(!item.completed && item.repeat && item.dueAt !== null){
+    // Checking a daily reminder off twice in one day used to skip a day. Once
+    // today's occurrence is done and the item has moved on, tapping again does
+    // nothing — the caller says so rather than silently advancing again.
+    // Hourly repeats are exempt: a second tap there is a second occurrence.
+    if(item.repeat.freq !== "hourly" && wasDoneToday(item, now) && item.dueAt > now){
+      return { item, advanced: false, alreadyDone: true };
+    }
     const { dueAt, ended } = rollForward(item.dueAt, item.repeat, Math.max(now, item.dueAt));
     if(!ended){
-      const updated = updateItem(id, { dueAt, completedAt: null, completed: false });
+      const updated = updateItem(id, { dueAt, completedAt: null, completed: false, lastDoneAt: now });
       return { item: updated, advanced: true };
     }
     // The end date has passed: this was the last occurrence, so it completes.
-    const updated = updateItem(id, { repeat: null, completed: true, completedAt: now });
+    const updated = updateItem(id, { repeat: null, completed: true, completedAt: now, lastDoneAt: now });
     return { item: updated, advanced: false };
   }
 
   const nowCompleted = !item.completed;
   const updated = updateItem(id, {
     completed: nowCompleted,
-    completedAt: nowCompleted ? now : null
+    completedAt: nowCompleted ? now : null,
+    lastDoneAt: nowCompleted ? now : null
   });
   return { item: updated, advanced: false };
+}
+
+/** Whether this reminder was checked off during the logbook day containing `now`. */
+export function wasDoneToday(item, now = Date.now()){
+  if(!item?.lastDoneAt) return false;
+  const { start, end } = dayBounds(new Date(now));
+  return item.lastDoneAt >= start && item.lastDoneAt < end;
 }
 
 export function toggleFlag(id){
@@ -353,6 +368,53 @@ export function groupByDate(items, now = Date.now()){
     }
   }
   return [...groups.values()].sort((a, b) => a.rank - b.rank);
+}
+
+/**
+ * The reminders the Home tab shows: what this logbook day is actually for.
+ *
+ * A dated reminder appears on the day it is due and not before — a doctor's
+ * appointment set today for next Tuesday belongs on next Tuesday's Home screen,
+ * not on this one. Once it appears it stays for the rest of the day, checked
+ * off or not, so the list reads as a record of the day rather than emptying
+ * itself as it is worked through. It clears when the day does, at 4:00am.
+ *
+ * Undated reminders never appear: with no date they have no day to land on.
+ * Overdue ones do, the same way they do in the Today smart list — something
+ * missed yesterday should not vanish overnight.
+ *
+ * Each entry is { item, done, overdue }. `done` is not `item.completed`: a
+ * repeating reminder checked off today has already advanced to its next
+ * occurrence and is no longer complete, but it is done for today and has to
+ * show that way.
+ */
+export function homeAgenda(now = Date.now()){
+  const { start, end } = dayBounds(new Date(now));
+
+  const entries = [];
+  for(const item of allItems()){
+    if(item.dueAt === null) continue;
+    const doneToday = wasDoneToday(item, now);
+    const dueBeforeDayEnds = item.dueAt < end;
+
+    if(!(doneToday || (!item.completed && dueBeforeDayEnds))) continue;
+
+    // `advanced` marks the odd case worth telling apart in the row: a repeat
+    // that was done today and has already moved on, so its due time now
+    // describes a different day.
+    const advanced = !item.completed && doneToday && item.dueAt > now;
+    entries.push({
+      item,
+      done: item.completed || advanced,
+      advanced,
+      overdue: !item.completed && item.dueAt < start
+    });
+  }
+
+  return entries.sort((a, b) => {
+    if(a.done !== b.done) return Number(a.done) - Number(b.done);
+    return (a.item.dueAt - b.item.dueAt) || a.item.order - b.item.order;
+  });
 }
 
 /**

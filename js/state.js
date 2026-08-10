@@ -1,6 +1,7 @@
 /** Persistent state, day keying, and time formatting. */
 import { RESET_HOUR, STORAGE_KEY, DEFAULT_SETTINGS } from "./config.js";
 import { normalizeReminders } from "./reminders/schema.js";
+import { normalizeWeatherSettings } from "./weather/settings.js";
 import { safeUUID } from "./uid.js";
 
 export { safeUUID };
@@ -24,6 +25,23 @@ export function dayKey(d = now()){
   return `${y}-${m}-${day}`;
 }
 
+/**
+ * The instants a logbook day runs between: RESET_HOUR local on its own date,
+ * to RESET_HOUR local the next day.
+ *
+ * Built with local setters and setDate(), never by adding 24h — the day either
+ * side of a DST change is 23 or 25 hours long, and "everything due today" has
+ * to keep meaning that on those two mornings a year.
+ */
+export function dayBounds(d = now()){
+  const start = new Date(d.getTime());
+  if(start.getHours() < RESET_HOUR) start.setDate(start.getDate() - 1);
+  start.setHours(RESET_HOUR, 0, 0, 0);
+  const end = new Date(start.getTime());
+  end.setDate(end.getDate() + 1);
+  return { start: start.getTime(), end: end.getTime() };
+}
+
 export function fmtTime(ts){
   if(!ts) return "—";
   return new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -33,10 +51,14 @@ export function fmtTime(ts){
 // crash on a partial or hand-edited state blob.
 export function normalizeState(raw){
   const base = (raw && typeof raw === "object") ? raw : {};
+  const settings = Object.assign({}, DEFAULT_SETTINGS, base.settings || {});
+  // Object.assign is shallow, so a stored settings blob replaces the nested
+  // weather default wholesale rather than merging into it.
+  settings.weather = normalizeWeatherSettings(settings.weather);
   return {
     deviceId: base.deviceId || safeUUID(),
     days: (base.days && typeof base.days === "object") ? base.days : {},
-    settings: Object.assign({}, DEFAULT_SETTINGS, base.settings || {}),
+    settings,
     reminders: normalizeReminders(base.reminders)
   };
 }
