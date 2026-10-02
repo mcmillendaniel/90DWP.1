@@ -20,7 +20,7 @@ Six tabs, driven by a bottom tab bar.
 | **Morning** | Four morning-routine items — movement, shower, outcomes written, meds. Same log-then-edit behaviour as events. |
 | **Reminders** | A full reminders app — lists, due dates, repeats, priorities, flags, tags, subtasks, and lock-screen alerts. See [The Reminders tab](#the-reminders-tab). |
 | **History** | Last seven days: outcomes completed, wake time, baby-up time. |
-| **Settings** | Push enable/disable, JSON+CSV export, JSON import, device ID, and a notification diagnostics panel. |
+| **Settings** | Push enable/disable, the morning check-in toggle, JSON+CSV export, JSON import, device ID, and a notification diagnostics panel. |
 
 A ticker in the header cycles the three outcomes every 3.5s with a red / yellow /
 green dot for none / some / all complete.
@@ -28,6 +28,19 @@ green dot for none / some / all complete.
 Tapping **I'm up** opens a full-screen wake modal whose tone adapts to the
 current streak and wake-time consistency — direct when the streak is short,
 steadier once it's established — then drops the user on the Morning tab.
+
+### The morning check-in
+
+Once push is enabled, a **"Don't forget to Check In!"** notification arrives at
+**5:00am local every day**, so it is already on the lock screen on waking.
+Tapping it opens the app straight onto the **Morning** tab (the push carries a
+`#tab/morning` url). It is on by default and can be turned off in Settings.
+
+Like repeating reminders, the Worker only holds one-shot pushes, so
+`js/checkin.js` queues the next 21 mornings (tags `checkin-YYYY-MM-DD`) and tops
+the window up whenever fewer than 14 remain. Opening the app at least once every
+two weeks or so keeps it going indefinitely; an ordinary launch makes no Worker
+calls at all.
 
 ### The logbook day
 
@@ -82,6 +95,7 @@ js/
   uid.js                  id generation
   state.js                persistence, day keying, time formatting
   push.js                 subscription, scheduling, cancelling, diagnostics
+  checkin.js              the daily 5am check-in push
   wake.js                 wake modal + adaptive messaging
   timepicker.js           drum-style time editor
   views.js                HTML for each tab
@@ -131,8 +145,8 @@ reason.
 TZ=America/New_York node --test "tests/*.test.mjs"
 ```
 
-75 tests over the date arithmetic, the repeat rules, the quick-add parser, the
-reminders store, the Home agenda, and the weather summary — the last of these
+85 tests over the date arithmetic, the repeat rules, the quick-add parser, the
+reminders store, the morning check-in queue, the Home agenda, and the weather summary — the last of these
 against trimmed copies of real NWS and Open-Meteo payloads, so no test touches
 the network. No dependencies and no runner — `tests/` uses the Node
 built-in. Pin `TZ` when running them: the date logic is timezone-sensitive by
@@ -618,8 +632,8 @@ from the push service, the only response that actually means "gone."
 - **Notification timing is ±1–2 minutes.** Reminders inherit this: an alert set
   for 9:00 arrives at 9:00–9:02. Fine for what this app is for; do not rely on
   it for anything time-critical.
-- **Repeating reminders need the app opened every few weeks** to extend their
-  queued window — see [How reminders become notifications](#how-reminders-become-notifications).
+- **Repeating reminders and the morning check-in need the app opened every few
+  weeks** to extend their queued window — see [How reminders become notifications](#how-reminders-become-notifications).
 - **No DOM tests.** The date logic, parser, store and weather summariser are
   covered; the views are not.
 - **The weather needs a location and a connection.** Coverage for the official

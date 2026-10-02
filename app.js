@@ -16,13 +16,15 @@
  *   views.js       HTML for each tab
  *   backup.js      export / import
  *   ui.js          render loop, wiring, action dispatch
+ *   checkin.js     the daily 5am check-in push
  *   reminders/     the Reminders tab — see reminders/model.js
  */
 import { ensureDay, dayKey } from "./js/state.js";
-import { render, startTicker, openReminderFromUrl } from "./js/ui.js";
+import { render, startTicker, openReminderFromUrl, openTabFromUrl } from "./js/ui.js";
 import { registerServiceWorker, syncPushState } from "./js/push.js";
 import { rollForwardRepeats } from "./js/reminders/model.js";
 import { reconcileReminderPushes } from "./js/reminders/schedule.js";
+import { reconcileCheckin } from "./js/checkin.js";
 import { refreshWeather } from "./js/weather/service.js";
 import { wireServiceWorkerUpdates, querySwCacheName } from "./js/version.js";
 
@@ -32,14 +34,15 @@ import { wireServiceWorkerUpdates, querySwCacheName } from "./js/version.js";
  * Both paths land here.
  */
 function wireNotificationRouting(){
-  if(openReminderFromUrl(location.hash)){
-    // Drop the fragment so a later reload does not reopen the same reminder.
+  const routeFromUrl = (url) => openReminderFromUrl(url) || openTabFromUrl(url);
+  if(routeFromUrl(location.hash)){
+    // Drop the fragment so a later reload does not reopen the same screen.
     history.replaceState(null, "", location.pathname + location.search);
   }
   if(!("serviceWorker" in navigator)) return;
   navigator.serviceWorker.addEventListener("message", (event) => {
     if(event.data?.type !== "NOTIF_ACTION") return;
-    if(openReminderFromUrl(event.data.data?.url)) render();
+    if(routeFromUrl(event.data.data?.url)) render();
   });
 }
 
@@ -58,6 +61,7 @@ function wireResume(){
     // An occurrence that rolled while the app sat in the background has a new
     // due time, so what is queued for it is now wrong.
     if(rolled) reconcileReminderPushes().catch(e => console.error("[reminders] reconcile failed:", e));
+    reconcileCheckin().catch(e => console.error("[checkin] reconcile failed:", e));
   });
 }
 
@@ -101,6 +105,10 @@ async function boot(){
   // up anything edited on a launch that could not reach the Worker.
   try { await reconcileReminderPushes(); }
   catch(e){ console.error("[reminders] reconcile failed:", e); }
+
+  // Keeps the next few weeks of 5am check-in pushes queued.
+  try { await reconcileCheckin(); }
+  catch(e){ console.error("[checkin] reconcile failed:", e); }
 }
 
 boot();

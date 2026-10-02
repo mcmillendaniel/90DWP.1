@@ -1,6 +1,6 @@
 /** Controller: tab state, the render loop, event wiring, and action dispatch. */
 import { $, toast, escapeHtml } from "./dom.js";
-import { saveState, ensureDay, dayKey, buildSuggestions } from "./state.js";
+import { state, saveState, ensureDay, dayKey, buildSuggestions } from "./state.js";
 import { renderHome, renderCheckoffs, renderMorning, renderHistory, renderSettings } from "./views.js";
 import { openWakeModal, pickWakeMessage } from "./wake.js";
 import { openTimeEditFlow } from "./timepicker.js";
@@ -16,6 +16,7 @@ import { openItem, openScope } from "./reminders/nav.js";
 import { getItem } from "./reminders/model.js";
 import { refreshWeather, useDeviceLocation, setWeatherLocation, clearWeatherLocation, weatherLocation } from "./weather/service.js";
 import { parseCoords } from "./weather/settings.js";
+import { reconcileCheckin, setCheckinEnabled } from "./checkin.js";
 
 let currentTab = "home";
 
@@ -58,6 +59,17 @@ export function openReminderFromUrl(url){
   openScope(item.listId);
   openItem(item.id);
   setActiveTab("reminders");
+  return true;
+}
+
+/**
+ * Opens the tab a `#tab/<name>` url points at — used by the morning check-in
+ * push, which lands on the Morning tab. Same contract as openReminderFromUrl.
+ */
+export function openTabFromUrl(url){
+  const match = /#tab\/([a-z]+)/.exec(String(url || ""));
+  if(!match || !VIEWS[match[1]]) return false;
+  setActiveTab(match[1]);
   return true;
 }
 
@@ -302,9 +314,22 @@ async function handleAction(act, el){
     // needs re-queueing now rather than being skipped as unchanged.
     invalidateAllPushSignatures();
     await reconcileReminderPushes();
+    await reconcileCheckin({ force: true });
     return;
   }
-  if(act === "push:disable"){ await disablePushFlow(); return; }
+  if(act === "push:disable"){
+    await disablePushFlow();
+    await reconcileCheckin();
+    return;
+  }
+  if(act === "checkin:toggle"){
+    const on = !state.settings.checkin.enabled;
+    await setCheckinEnabled(on);
+    toast(!on ? "Morning check-in off."
+      : state.settings.pushEnabled ? "Morning check-in on — 5:00am daily."
+      : "Saved — enable push for it to arrive.");
+    return;
+  }
   if(act === "test:local"){ await testLocalNotification(); return; }
   if(act === "test:push"){ await testPushRoundTrip(); return; }
   if(act === "reminders:resync"){
@@ -323,6 +348,7 @@ async function handleAction(act, el){
       // nothing about what this device has queued.
       invalidateAllPushSignatures();
       reconcileReminderPushes().catch(e => console.error("[reminders] reconcile failed:", e));
+      reconcileCheckin({ force: true }).catch(e => console.error("[checkin] reconcile failed:", e));
       render();
     });
     return;

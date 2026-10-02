@@ -15,4 +15,4 @@ export const STORAGE_KEY = "90dwp_state_v1";
 export const PUSH_RESULT_KEY = "90dwp_last_push_result";
 
 /** Weather is normalised separately — see weather/settings.js. */
-export const DEFAULT_SETTINGS = { pushEnabled: false, weather: null };
+export const DEFAULT_SETTINGS = { pushEnabled: false, weather: null, checkin: null };

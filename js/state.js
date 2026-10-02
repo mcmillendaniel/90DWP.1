@@ -47,6 +47,17 @@ export function fmtTime(ts){
   return new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+// The morning check-in is on by default: it only does anything once push is
+// enabled. queuedThrough is the last morning handed to the Worker — see checkin.js.
+function normalizeCheckinSettings(raw){
+  const base = (raw && typeof raw === "object") ? raw : {};
+  const through = Number(base.queuedThrough);
+  return {
+    enabled: base.enabled !== false,
+    queuedThrough: (base.queuedThrough != null && Number.isFinite(through)) ? through : null
+  };
+}
+
 // Guarantees deviceId/days/settings always exist, so nothing downstream can
 // crash on a partial or hand-edited state blob.
 export function normalizeState(raw){
@@ -55,6 +66,7 @@ export function normalizeState(raw){
   // Object.assign is shallow, so a stored settings blob replaces the nested
   // weather default wholesale rather than merging into it.
   settings.weather = normalizeWeatherSettings(settings.weather);
+  settings.checkin = normalizeCheckinSettings(settings.checkin);
   return {
     deviceId: base.deviceId || safeUUID(),
     days: (base.days && typeof base.days === "object") ? base.days : {},

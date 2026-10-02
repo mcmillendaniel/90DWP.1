@@ -15,6 +15,12 @@ function reminderScheduleSummary(){
   return `${pending} scheduled${repeating ? `, ${repeating} repeating` : ""} · rebuilds the queue`;
 }
 
+function checkinSummary(){
+  if(!state.settings.checkin.enabled) return "Off";
+  const when = "5:00am daily → Morning tab";
+  return state.settings.pushEnabled ? when : `${when} · needs push enabled`;
+}
+
 export function renderHome(){
   const d = ensureDay(dayKey());
   return `
@@ -164,6 +170,13 @@ export function renderSettings(){
           ? `<button class="btn" style="flex:0 0 auto" data-action="push:disable">Disable</button>`
           : `<button class="btn" style="flex:0 0 auto" data-action="push:enable">Enable</button>`
         }
+      </div>
+      <div class="item">
+        <div class="item-left">
+          <div class="item-title">Morning check-in</div>
+          <div class="item-sub">${checkinSummary()}</div>
+        </div>
+        <button class="btn" style="flex:0 0 auto" data-action="checkin:toggle">${state.settings.checkin.enabled ? "Turn off" : "Turn on"}</button>
       </div>
       <div class="item">
         <div class="item-left">
